@@ -1,31 +1,7 @@
-#include <Arduino.h>
+#pragma once
+#include "radio.h"
+#include "packet.h"
 
-// ---------- CONFIG ----------
-constexpr uint32_t CONTROL_HZ = 1000;
-constexpr TickType_t CONTROL_PERIOD = pdMS_TO_TICKS(1000 / CONTROL_HZ);
+using Radio_t = Radio<TelemetryPacket, ControlPacket>;
 
-// ---------- CONTROL LOOP TASK ----------
-
-void controlTask(void* arg)
-{
-    TickType_t lastWake = xTaskGetTickCount();
-
-    for (;;) {
-        // control loop
-
-        vTaskDelayUntil(&lastWake, CONTROL_PERIOD);
-    }
-}
-
-void setup_control()
-{
-    xTaskCreatePinnedToCore(
-        controlTask,
-        "control",
-        8192,
-        nullptr,
-        3,
-        nullptr,
-        1
-    );
-}
+void setup_control(Radio_t* radio);

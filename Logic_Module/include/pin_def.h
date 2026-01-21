@@ -1,3 +1,4 @@
+#pragma once
 namespace PINS {
 
     //Sensor address pins
@@ -18,8 +19,8 @@ namespace PINS {
     constexpr int CAN_TX = 5;
 
     //I2C BUS
-    constexpr int SDA = 21;
-    constexpr int SCL = 22;
+    constexpr int SDA = 22;
+    constexpr int SCL = 21;
 
     //Misc
     constexpr int BUZZER = 25;
