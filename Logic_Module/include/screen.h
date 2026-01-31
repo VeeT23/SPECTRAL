@@ -10,11 +10,11 @@ public:
         return instance;
     }
 
+    // NOTE: I2C must be initialized prior
     bool init(uint8_t addr) {
         if (initialized)
             return true;
-
-        Wire.begin(SDA, SCL);
+        
 
         if (!display.begin(SSD1306_SWITCHCAPVCC, addr)) {
             Serial.println("SSD1306 allocation failed");
@@ -36,7 +36,14 @@ public:
     Adafruit_SSD1306& gfx() {
         return display;
     }
-
+    void clear()
+    {
+        gfx().clearDisplay();
+    }
+    void show()
+    {
+        gfx().display();
+    }
 private:
     Screen()
         : display(128, 64, &Wire, -1) {}

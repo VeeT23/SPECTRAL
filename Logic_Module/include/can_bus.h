@@ -3,9 +3,7 @@
 #include <stdint.h>
 #include <cstring>
 #include <driver/twai.h>
-
-// ---------------- CONFIG ----------------
-constexpr uint32_t CAN_TX_TIMEOUT_MS = 20                      ;
+#include "config.h"
 
 // ---------------- CAN BUS SINGLETON ----------------
 class CANBus
@@ -22,8 +20,9 @@ public:
 
     bool begin(int tx, int rx, uint32_t bitrate = 500000)
     {
-        digitalWrite(PINS::CAN_STBY,LOW);
         if (started_) return true;
+
+        digitalWrite(PINS::CAN_STBY,LOW); // Active low
 
         twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(
             static_cast<gpio_num_t>(tx),
@@ -91,6 +90,25 @@ public:
         return twai_receive(&msg, timeout) == ESP_OK;
     }
 
+    // ---------- TEST ---------
+
+    /**
+     * @return
+     * - FALSE: fail
+     * - TRUE: success
+     */
+    bool test_can()
+    {
+        twai_status_info_t status;
+        twai_get_status_info(&status);
+        Serial.print("CAN state: ");
+        Serial.println(status.state);
+        if (status.state != ESP_OK) return 0;
+        uint8_t dummy[1] = {0xAA};
+        bool ok = CANBus::instance().canSend(0x123, dummy, 1);
+        if (ok != ESP_OK) return 0;
+        return 1;
+    }
 private:
     CANBus() = default;
     ~CANBus() = default;

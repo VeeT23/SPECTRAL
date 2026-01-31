@@ -1,4 +1,5 @@
 #pragma once
+#include <Arduino.h>
 namespace PINS {
 
     //Sensor address pins
@@ -27,4 +28,30 @@ namespace PINS {
     constexpr int NEOPIXEL = 26;
     constexpr int FAN_PWM = 27;
 
+    constexpr int OUTPUT_PINS[] =
+    {
+        A0,
+        A1,
+        A2,
+        CAN_STBY,
+        BUZZER,
+        NEOPIXEL,
+        FAN_PWM
+    };
+
+    constexpr int INPUT_PINS[] = 
+    {
+        S0,
+        S1,
+        S2,
+        S3,
+        S4
+    };
+
+    inline void configure_pins()
+{
+    for(int pin : PINS::INPUT_PINS)  { pinMode(pin, INPUT);  }
+    for(int pin : PINS::OUTPUT_PINS) { pinMode(pin, OUTPUT); }
 }
+}
+

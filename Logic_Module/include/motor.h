@@ -2,27 +2,16 @@
 
 #include <stdint.h>
 #include <string.h>
+#include <Arduino.h>
 #include "can_bus.h"
-
-// ---------------- CANSimple Commands ----------------
-constexpr uint32_t ODRIVE_CMD_HEARTBEAT          = 0x01;
-constexpr uint32_t ODRIVE_CMD_ESTOP              = 0x02;
-constexpr uint32_t ODRIVE_CMD_SET_AXIS_STATE     = 0x07;
-constexpr uint32_t ODRIVE_CMD_GET_ENCODER_EST    = 0x09;
-constexpr uint32_t ODRIVE_CMD_SET_INPUT_VEL      = 0x0D;
-constexpr uint32_t ODRIVE_CMD_CLEAR_ERRORS       = 0x18;
-
-// ---------------- Axis States ----------------
-constexpr uint32_t AXIS_STATE_CLOSED_LOOP = 8;
-
-// ---------------- Timing ----------------
-constexpr uint32_t HEARTBEAT_TIMEOUT_MS = 200;
+#include "config.h"       // Defines ODrive commands
+#include "driver/twai.h"  // ESP32 TWAI types
 
 // ---------------- Telemetry ----------------
 struct MotorTelemetry
 {
-    float position = 0.0f;     // turns
-    float velocity = 0.0f;     // turns/s
+    float position = 0.0f;   // turns
+    float velocity = 0.0f;   // turns/s
     uint8_t axis_state = 0;
     uint32_t axis_error = 0;
     uint32_t last_heartbeat_ms = 0;
@@ -36,7 +25,6 @@ public:
         : node_id_(node_id) {}
 
     // ---------- Commands ----------
-
     void clearErrors()
     {
         sendFrame(ODRIVE_CMD_CLEAR_ERRORS, nullptr, 0);
@@ -47,15 +35,12 @@ public:
         sendU32(ODRIVE_CMD_SET_AXIS_STATE, AXIS_STATE_CLOSED_LOOP);
     }
 
-    // CANSimple Set_Input_Vel:
-    // float velocity [turns/s]
-    // float torque_ff [Nm]
     void setVelocity(float vel, float torque_ff = 0.0f)
     {
         uint8_t data[8];
         memcpy(&data[0], &vel, sizeof(float));
         memcpy(&data[4], &torque_ff, sizeof(float));
-        sendFrame(ODRIVE_CMD_SET_INPUT_VEL, data, 8);
+        sendFrame(ODRIVE_CMD_SET_INPUT_VEL, data, sizeof(data));
     }
 
     void requestEncoder()
@@ -63,40 +48,41 @@ public:
         sendFrame(ODRIVE_CMD_GET_ENCODER_EST, nullptr, 0);
     }
 
-    // ---------- RX Handling ----------
-
-    void handleFrame(uint32_t can_id,
-                     const uint8_t* data,
-                     uint8_t len,
-                     uint32_t now_ms)
+    // ---------- TWAI RX Handling ----------
+    // Process an incoming TWAI frame, update telemetry if relevant
+    void processTwaiFrame(const twai_message_t &msg, uint32_t now_ms)
     {
-        uint32_t cmd = can_id & 0x1F;
-        uint8_t src_node = can_id >> 5;
+        const uint32_t cmd      = msg.identifier & 0x1F;
+        const uint8_t  src_node = msg.identifier >> 5;
 
         if (src_node != node_id_) return;
 
         switch (cmd)
         {
-            case ODRIVE_CMD_HEARTBEAT:
+        case ODRIVE_CMD_HEARTBEAT:
+            if (msg.data_length_code >= 5)
             {
-                telemetry_.axis_error = *(uint32_t*)&data[0];
-                telemetry_.axis_state = data[4];
+                memcpy(&telemetry_.axis_error, &msg.data[0], sizeof(uint32_t));
+                telemetry_.axis_state = msg.data[4];
                 telemetry_.last_heartbeat_ms = now_ms;
-            } break;
+            }
+            break;
 
-            case ODRIVE_CMD_GET_ENCODER_EST:
+        case ODRIVE_CMD_GET_ENCODER_EST:
+            if (msg.data_length_code >= 8)
             {
-                memcpy(&telemetry_.position, &data[0], sizeof(float));
-                memcpy(&telemetry_.velocity, &data[4], sizeof(float));
-            } break;
+                memcpy(&telemetry_.position, &msg.data[0], sizeof(float));
+                memcpy(&telemetry_.velocity, &msg.data[4], sizeof(float));
+            }
+            break;
 
-            default:
-                break;
+        default:
+            break;
         }
     }
 
     // ---------- Safety ----------
-
+    [[nodiscard]]
     bool alive(uint32_t now_ms) const
     {
         return (now_ms - telemetry_.last_heartbeat_ms) < HEARTBEAT_TIMEOUT_MS;
@@ -112,25 +98,22 @@ private:
     MotorTelemetry telemetry_{};
 
     // ---------- CAN Helpers ----------
-
-    inline uint32_t makeCanID(uint32_t cmd) const
+    constexpr uint32_t makeCanID(uint32_t cmd) const
     {
-        return (node_id_ << 5) | cmd;
+        return (static_cast<uint32_t>(node_id_) << 5) | cmd;
     }
 
     void sendU32(uint32_t cmd, uint32_t value)
     {
         uint8_t data[4];
-        memcpy(data, &value, sizeof(uint32_t));
-        sendFrame(cmd, data, 4);
+        memcpy(data, &value, sizeof(value));
+        sendFrame(cmd, data, sizeof(data));
     }
 
     void sendFrame(uint32_t cmd, const uint8_t* data, uint8_t len)
     {
-        uint32_t id = makeCanID(cmd);
-        bool ok = CANBus::instance().canSend(id, data, len);
-
-        if (!ok)
+        const uint32_t id = makeCanID(cmd);
+        if (!CANBus::instance().canSend(id, data, len))
         {
             Serial.print("[CAN TX FAIL] node=");
             Serial.print(node_id_);

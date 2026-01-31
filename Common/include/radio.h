@@ -2,30 +2,43 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <esp_now.h>
+#include "config.h"
 
 template <typename TxPacket, typename RxPacket>
 class Radio {
 public:
-    // Config
-    static constexpr uint32_t RX_TIMEOUT_MS = 100;
+    // ===== Singleton access =====
+    static Radio& instance() {
+        static Radio instance; // Meyers' singleton
+        return instance;
+    }
+
+    // Delete copy/move
+    Radio(const Radio&) = delete;
+    Radio& operator=(const Radio&) = delete;
+    Radio(Radio&&) = delete;
+    Radio& operator=(Radio&&) = delete;
+
+    // ===== Config =====
     static constexpr uint8_t  FLAG_ACK_REQ = 0x01;
     static constexpr uint8_t  FLAG_ACK     = 0x02;
 
-    // Callbacks
+    // ===== Callbacks =====
     void (*onPacket)(const RxPacket&) = nullptr;
     void (*onTimeout)() = nullptr;
 
-    // Public state
+    // ===== Public state =====
     uint32_t txSeq = 0;
     uint32_t lastRxSeq = 0;
     uint32_t lastRxTime = 0;
     bool     linkAlive = false;
 
-    // Init
+    // ===== Init =====
     bool begin(const uint8_t peerMac[6]) {
         memcpy(peerMAC, peerMac, 6);
 
         WiFi.mode(WIFI_STA);
+        Serial.print("MAC: ");
         Serial.println(WiFi.macAddress());
         WiFi.disconnect();
 
@@ -43,13 +56,12 @@ public:
         if (esp_now_add_peer(&peer) != ESP_OK)
             return false;
 
-        instance = this;
         return true;
     }
 
-    // Send 
+    // ===== Send =====
     bool send(TxPacket& pkt, bool requestAck = false) {
-        pkt.seq = ++txSeq;
+        pkt.seq   = ++txSeq;
         pkt.flags = requestAck ? FLAG_ACK_REQ : 0;
 
         return esp_now_send(peerMAC,
@@ -57,7 +69,7 @@ public:
                             sizeof(TxPacket)) == ESP_OK;
     }
 
-    // Update
+    // ===== Update =====
     void update() {
         uint32_t now = millis();
 
@@ -68,21 +80,22 @@ public:
     }
 
 private:
-    uint8_t peerMAC[6];
+    // ===== Constructor =====
+    Radio() = default;
 
-    static Radio* instance;
+    uint8_t peerMAC[6]{};
 
     // ===== RX CALLBACK =====
     static void rxThunk(const uint8_t* mac,
                         const uint8_t* data,
                         int len) {
-        if (!instance) return;
-        instance->handleRx(mac, data, len);
+        instance().handleRx(mac, data, len);
     }
 
     void handleRx(const uint8_t* mac,
                   const uint8_t* data,
                   int len) {
+        (void)mac;
 
         if (len != sizeof(RxPacket))
             return;
@@ -95,9 +108,9 @@ private:
             // Packet dropped (optional logging)
         }
 
-        lastRxSeq = pkt.seq;
+        lastRxSeq  = pkt.seq;
         lastRxTime = millis();
-        linkAlive = true;
+        linkAlive  = true;
 
         // ACK handling
         if (pkt.flags & FLAG_ACK_REQ) {
@@ -108,23 +121,21 @@ private:
             onPacket(pkt);
     }
 
-    // TX callback
+    // ===== TX CALLBACK =====
     static void txThunk(const uint8_t* mac,
                         esp_now_send_status_t status) {
         (void)mac;
         (void)status;
     }
 
-    // ACK
+    // ===== ACK =====
     void sendAck(uint32_t seq) {
         RxPacket ack{};
-        ack.seq = seq;
+        ack.seq   = seq;
         ack.flags = FLAG_ACK;
+
         esp_now_send(peerMAC,
-                      reinterpret_cast<uint8_t*>(&ack),
-                      sizeof(RxPacket));
+                     reinterpret_cast<uint8_t*>(&ack),
+                     sizeof(RxPacket));
     }
 };
-
-template <typename TxPacket, typename RxPacket>
-Radio<TxPacket, RxPacket>* Radio<TxPacket, RxPacket>::instance = nullptr;

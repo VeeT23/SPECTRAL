@@ -1,6 +1,6 @@
 #pragma once
 #include <Arduino.h>
-#include "pin_def.h"   // PINS::BUZZER
+
 
 namespace Buzzer {
 
@@ -10,8 +10,7 @@ namespace Buzzer {
     constexpr uint32_t DEFAULT_FREQ   = 2000;
 
     // -------- Internal state --------
-    inline bool initialized = false;
-    inline uint8_t  currentVolume = 0;
+    static bool initialized = false;
 
     void stop() {
         if (!initialized)
@@ -21,12 +20,12 @@ namespace Buzzer {
     }
     // -------- Public API --------
 
-    inline void init() {
+    inline void init(uint8_t pin) {
         if (initialized)
             return;
 
         ledcSetup(PWM_CHANNEL, DEFAULT_FREQ, PWM_RESOLUTION);
-        ledcAttachPin(PINS::BUZZER, PWM_CHANNEL);
+        ledcAttachPin(pin, PWM_CHANNEL);
 
         initialized = true;
     }
@@ -39,7 +38,7 @@ namespace Buzzer {
      */
     inline void beep(uint32_t freq, uint32_t ms, uint8_t volume = 128) {
         if (!initialized)
-            init();
+            return;
 
         freq   = constrain(freq, 20, 20000);
         volume = constrain(volume, 0, 255);

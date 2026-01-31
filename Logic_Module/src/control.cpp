@@ -1,22 +1,9 @@
 #include "control.h"
 #include "pin_def.h"
 #include "motor.h"
-
-// ---------- CONFIG ----------
-constexpr uint32_t CONTROL_HZ = 1000;
-constexpr TickType_t CONTROL_PERIOD = pdMS_TO_TICKS(1000 / CONTROL_HZ);
-
-constexpr uint8_t NUM_MODULES = 5;
-constexpr uint8_t SENSORS_PER_MODULE = 8;
-constexpr uint8_t TOTAL_SENSORS = NUM_MODULES * SENSORS_PER_MODULE;
-constexpr TickType_t PRINT_PERIOD = pdMS_TO_TICKS(100);
-
-// ordered S0-0..S0-7, S1-0..S1-7, ...
-static uint16_t ir_raw[TOTAL_SENSORS];
-
-// ---------- CONTROL LOOP TASK ----------
-
-static Radio_t *radioPtr = nullptr;
+#include "screen.h"
+#include "global_state.h"
+#include "config.h"
 
 inline void setMuxAddress(uint8_t addr)
 {
@@ -25,103 +12,77 @@ inline void setMuxAddress(uint8_t addr)
     digitalWrite(PINS::A2, addr & 0x04);
 }
 
+void poll_sensors()
+{
+    ir_raw[0 * SENSORS_PER_MODULE + sensor_idx] = analogRead(PINS::S4);
+    ir_raw[1 * SENSORS_PER_MODULE + sensor_idx] = analogRead(PINS::S3);
+    ir_raw[2 * SENSORS_PER_MODULE + sensor_idx] = analogRead(PINS::S2);
+    ir_raw[3 * SENSORS_PER_MODULE + sensor_idx] = analogRead(PINS::S1);
+    ir_raw[4 * SENSORS_PER_MODULE + sensor_idx] = analogRead(PINS::S0);
+
+        // Increment, then set -> lets mux stabalize between ticks while MCU does other things.
+    sensor_idx++;
+    sensor_idx = (sensor_idx == SENSORS_PER_MODULE) ? 0 : sensor_idx;
+    setMuxAddress(sensor_idx);
+}
+
 void controlTask(void *arg)
 {
+    // ---------- Task Scheduling -----------
     TickType_t lastWake = xTaskGetTickCount();
     TickType_t lastTelemetry = lastWake;
     TickType_t lastPrint = lastWake;
 
-    constexpr TickType_t TELEMETRY_PERIOD = pdMS_TO_TICKS(50);
-
+    // ---------- ODrive -----------
     Motor motor_left(1);
     Motor motor_right(2);
 
-    // ---------- GIVE ODRIVE TIME ----------
-    vTaskDelay(pdMS_TO_TICKS(100));
-
-    // ---------- ENTER CLOSED LOOP ----------
     motor_left.enterClosedLoop();
     motor_right.enterClosedLoop();
 
-    TickType_t start = xTaskGetTickCount();
-    while (
-        !motor_left.alive(xTaskGetTickCount()) ||
-        !motor_right.alive(xTaskGetTickCount()))
-    {
-        if (xTaskGetTickCount() - start > pdMS_TO_TICKS(1000))
-        {
-            Serial.println("ODrive heartbeat timeout");
-            break;
-        }
-        vTaskDelay(pdMS_TO_TICKS(10));
-    }
-
-    constexpr float TEST_VELOCITY = 1.0f; // rev/s
-
+    
     for (;;)
     {
+        TickType_t ticks = xTaskGetTickCount();
+        uint32_t now_ms = ticks * portTICK_PERIOD_MS;
 
-        motor_left.setVelocity(TEST_VELOCITY);
-        motor_right.setVelocity(TEST_VELOCITY);
+        // =================== LOOP BEGIN ===================
 
-        if (motor_left.alive(xTaskGetTickCount()))
-            Serial.println("Left motor heartbeat OK");
-        else
-            Serial.println("Left motor NO heartbeat");
-
-        if (motor_right.alive(xTaskGetTickCount()))
-            Serial.println("Right motor heartbeat OK");
-        else
-            Serial.println("Right motor NO heartbeat");
-
-        /*
-        for (uint8_t sensor = 0; sensor < SENSORS_PER_MODULE; sensor++)
+        // ---------- PROCESS CAN ----------
+        twai_message_t msg;
+        if (CANBus::instance().receive(msg))
         {
-            setMuxAddress(sensor);
-            ets_delay_us(20);
-
-            ir_raw[0 * SENSORS_PER_MODULE + sensor] = analogRead(PINS::S0);
-            ir_raw[1 * SENSORS_PER_MODULE + sensor] = analogRead(PINS::S1);
-            ir_raw[2 * SENSORS_PER_MODULE + sensor] = analogRead(PINS::S2);
-            ir_raw[3 * SENSORS_PER_MODULE + sensor] = analogRead(PINS::S3);
-            ir_raw[4 * SENSORS_PER_MODULE + sensor] = analogRead(PINS::S4);
+            motor_left.processTwaiFrame(msg, now_ms);
+            motor_right.processTwaiFrame(msg,now_ms);
         }
 
-        TickType_t now = xTaskGetTickCount();
-        if (now - lastPrint >= PRINT_PERIOD)
-        {
-            lastPrint = now;
+        // ---------- PROCESS SENSORS ----------
+        poll_sensors();
+        
+        // ---------- UPDATE MOTORS ----------
+        motor_left.setVelocity(0);
+        motor_right.setVelocity(0);
 
-            Serial.print("IR: ");
+        // ---------- DEBUG ----------
+        if (ticks - lastPrint >= DRAW_PERIOD)
+        {
+            Screen::instance().clear();
+            lastPrint = ticks;
             for (uint8_t i = 0; i < TOTAL_SENSORS; i++)
             {
-                Serial.print(ir_raw[i]);
-                if (i < TOTAL_SENSORS - 1) Serial.print(',');
+                Screen::instance().gfx().drawRect((TOTAL_SENSORS - i) * 3,0,2,(ir_raw[i] / 4096.0 * 64),SSD1306_WHITE);
             }
-            Serial.println();
+            Screen::instance().show();
         }
-            */
-        static uint32_t lastStatusPrint = 0;
-        uint32_t now_ms = millis();
+            
 
-        if (now_ms - lastStatusPrint > 500)
-        {
-            lastStatusPrint = now_ms;
-
-            Serial.print("[CTRL] L alive=");
-            Serial.print(motor_left.alive(xTaskGetTickCount()));
-            Serial.print(" R alive=");
-            Serial.print(motor_right.alive(xTaskGetTickCount()));
-            Serial.println();
-        }
-
+        // =================== LOOP END ===================
         vTaskDelayUntil(&lastWake, CONTROL_PERIOD);
     }
 }
 
-void setup_control(Radio_t *radio)
+void setup_control()
 {
-    radioPtr = radio;
 
     xTaskCreatePinnedToCore(
         controlTask,
