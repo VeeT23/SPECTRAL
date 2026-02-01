@@ -4,11 +4,9 @@
 #include "screen.h"
 #include "joystick.h"
 #include "pin_def.h"
+#include "config.h"
 #include "radio.h"
 #include "packet.h"
-
-// ================= MAC ADDRESS =================
-constexpr uint8_t robotMAC[] = {0x78, 0x42, 0x1C, 0x1F, 0xE9, 0xBC};
 
 // ================= INPUT DEVICES ===============
 Joystick joy_left(
@@ -30,17 +28,16 @@ Joystick joy_right(
 // ================= SETUP =======================
 void setup()
 {
-    delay(1000);
-
+    delay(2000);
     Wire.begin();
     Serial.begin(115200);
 
     Screen::instance().init(0x3C);
-
+    
     // ---- Radio singleton ----
     auto& radio = Radio<ControlPacket, TelemetryPacket>::instance();
 
-    if (!radio.begin(robotMAC))
+    if (!radio.begin(ROBOT_MAC))
     {
         Serial.println("Radio init failed!");
         while (true) { delay(1000); }
@@ -63,6 +60,7 @@ void setup()
 // ================= LOOP ========================
 void loop()
 {
+    delay(10);
     auto& radio = Radio<ControlPacket, TelemetryPacket>::instance();
 
     joy_left.poll();
@@ -79,7 +77,7 @@ void loop()
         cmd.left_vel  = joy_left.y();
         cmd.right_vel = joy_right.y();
         cmd.flags     = 0;
-
+        Serial.println("Sent");
         radio.send(cmd);
     }
 

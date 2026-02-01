@@ -10,6 +10,11 @@
 // Main loop
 #include "control.h"
 
+
+void handlePacket(const ControlPacket& pkt) {
+    Serial.print("Callback");
+}
+
 /**
  * Main boot sequence
  * see global_state.h for config
@@ -39,6 +44,7 @@ void setup()
     // ---------- RADIO INIT ----------
     Serial.println("Initializing Radio...");
     auto& radio = RadioInstance();
+    radio.onPacket  = handlePacket;
     if (!radio.begin(CONTROLLER_MAC)) {
         Serial.println("Radio init failed!");
         while (true) { delay(1000); }
