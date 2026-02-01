@@ -36,7 +36,6 @@ void setup()
     
     // ---- Radio singleton ----
     auto& radio = Radio<ControlPacket, TelemetryPacket>::instance();
-
     if (!radio.begin(ROBOT_MAC))
     {
         Serial.println("Radio init failed!");
@@ -77,7 +76,6 @@ void loop()
         cmd.left_vel  = joy_left.y();
         cmd.right_vel = joy_right.y();
         cmd.flags     = 0;
-        Serial.println("Sent");
         radio.send(cmd);
     }
 
