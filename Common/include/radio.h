@@ -9,11 +9,10 @@ class Radio {
 public:
     // ===== Singleton access =====
     static Radio& instance() {
-        static Radio instance; // Meyers' singleton
+        static Radio instance;
         return instance;
     }
-
-    // Delete copy/move
+    
     Radio(const Radio&) = delete;
     Radio& operator=(const Radio&) = delete;
     Radio(Radio&&) = delete;
@@ -63,7 +62,7 @@ public:
     bool send(TxPacket& pkt, bool requestAck = false) {
         pkt.seq   = ++txSeq;
         pkt.flags = requestAck ? FLAG_ACK_REQ : 0;
-
+        Serial.println("Sent");
         return esp_now_send(peerMAC,
                             reinterpret_cast<uint8_t*>(&pkt),
                             sizeof(TxPacket)) == ESP_OK;
