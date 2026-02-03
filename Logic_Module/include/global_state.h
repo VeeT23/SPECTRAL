@@ -1,6 +1,5 @@
 #pragma once
 #include "Radio.h"
-#include "packet.h"
 #include "config.h"
 
 
@@ -11,8 +10,14 @@ static uint16_t ir_raw[TOTAL_SENSORS];
 
 // ---------- RADIO ----------
 
+// ---- Control packet from controller ----
+static volatile bool control_pkt_pending = false;
+static ControlPacket latest_control_pkt{};
+
+
 using GlobalRadio = Radio<TelemetryPacket, ControlPacket>;
 
-inline GlobalRadio& RadioInstance() {
+// Use 'static' here instead of 'inline' to avoid requiring C++17 inline variables.
+static GlobalRadio& RadioInstance() {
     return GlobalRadio::instance();
 }

@@ -3,6 +3,8 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <esp_now.h>
+#include <esp_wifi.h>
+#include <stdint.h>
 #include <string.h>
 #include "config.h"
 
@@ -13,43 +15,49 @@ struct __attribute__((packed)) PacketHeader {
     uint8_t  flags;
 };
 
+// ================= PACKETS =================
+
+struct __attribute__((packed)) ControlPacket {
+    uint32_t seq;
+    uint8_t  flags;
+    float left_vel;
+    float right_vel;
+};
+
+struct __attribute__((packed)) TelemetryPacket {
+    uint32_t seq;
+    uint8_t  flags;
+    float battery_v;
+};
+
 // ================= RADIO =========================
 
 template <typename TxPacket, typename RxPacket>
 class Radio {
 public:
-    // ===== Singleton =====
-    static Radio& instance() {
-        static Radio inst;
-        return inst;
-    }
-
-    Radio(const Radio&) = delete;
-    Radio& operator=(const Radio&) = delete;
-
-    // ===== Flags =====
+    // ===== FLAGS =====
     static constexpr uint8_t FLAG_ACK_REQ = 0x01;
     static constexpr uint8_t FLAG_ACK     = 0x02;
 
-    // ===== Callbacks =====
+    // ===== CALLBACKS =====
     void (*onPacket)(const RxPacket&) = nullptr;
     void (*onTimeout)()               = nullptr;
 
-    // ===== State =====
+    // ===== STATE =====
     uint32_t txSeq      = 0;
     uint32_t lastRxSeq  = 0;
     uint32_t lastRxTime = 0;
     bool     linkAlive  = false;
 
-    // ===== Init =====
-    bool begin(const uint8_t peerMac[6]) {
+    // ===== INIT =====
+    bool begin(const uint8_t peerMac[6], uint8_t wifiChannel) {
         memcpy(peerMAC, peerMac, 6);
 
         WiFi.mode(WIFI_STA);
         WiFi.disconnect(true);
 
-        Serial.print("ESP MAC: ");
-        Serial.println(WiFi.macAddress());
+        esp_wifi_set_ps(WIFI_PS_NONE);
+        esp_wifi_set_channel(wifiChannel, WIFI_SECOND_CHAN_NONE);
 
         if (esp_now_init() != ESP_OK)
             return false;
@@ -59,7 +67,7 @@ public:
 
         esp_now_peer_info_t peer{};
         memcpy(peer.peer_addr, peerMAC, 6);
-        peer.channel = 0;     // use current channel
+        peer.channel = wifiChannel;
         peer.encrypt = false;
 
         if (esp_now_add_peer(&peer) != ESP_OK)
@@ -68,49 +76,73 @@ public:
         return true;
     }
 
-    // ===== Send =====
-    bool send(TxPacket& pkt, bool requestAck = false) {
-        pkt.seq   = ++txSeq;
-        pkt.flags = requestAck ? FLAG_ACK_REQ : 0;
+    // ===== SEND =====
+    bool send(const TxPacket& pkt, bool requestAck = false) {
+        txBuf = pkt;
+        txBuf.seq   = ++txSeq;
+        txBuf.flags = requestAck ? FLAG_ACK_REQ : 0;
 
         return esp_now_send(
             peerMAC,
-            reinterpret_cast<uint8_t*>(&pkt),
+            reinterpret_cast<uint8_t*>(&txBuf),
             sizeof(TxPacket)
         ) == ESP_OK;
     }
 
-    // ===== Update =====
+    // ===== UPDATE (CALL FROM LOOP OR TASK) =====
     void update() {
         const uint32_t now = millis();
 
+        // ---- link timeout ----
         if (linkAlive && (now - lastRxTime > RX_TIMEOUT_MS)) {
             linkAlive = false;
             if (onTimeout) onTimeout();
         }
+
+        // ---- deferred ACK ----
+        if (ackPending) {
+            PacketHeader ack{};
+            ack.seq   = pendingAckSeq;
+            ack.flags = FLAG_ACK;
+
+            esp_now_send(
+                peerMAC,
+                reinterpret_cast<uint8_t*>(&ack),
+                sizeof(PacketHeader)
+            );
+
+            ackPending = false;
+        }
+    }
+
+    
+    // ===== SINGLETON =====
+    static Radio& instance() {
+        static Radio inst;
+        return inst;
     }
 
 private:
-    Radio() = default;
+    // ===== INTERNAL STORAGE =====
+    uint8_t  peerMAC[6]{};
+    TxPacket txBuf{};
 
-    uint8_t peerMAC[6]{};
+    volatile bool     ackPending   = false;
+    volatile uint32_t pendingAckSeq = 0;
 
-    // ===== RX THUNK =====
+    // ===== RX CALLBACK (WIFI TASK) =====
     static void rxThunk(const uint8_t* mac,
                         const uint8_t* data,
                         int len) {
         instance().handleRx(mac, data, len);
     }
 
-    // ===== RX HANDLER =====
     void handleRx(const uint8_t*,
                   const uint8_t* data,
                   int len) {
 
-        if (len < (int)sizeof(PacketHeader)) {
-            // Garbage packet
+        if (len < (int)sizeof(PacketHeader))
             return;
-        }
 
         PacketHeader hdr;
         memcpy(&hdr, data, sizeof(PacketHeader));
@@ -118,31 +150,25 @@ private:
         lastRxTime = millis();
         linkAlive  = true;
 
-        // ---- ACK handling ----
+        // ---- ACK request ----
         if (hdr.flags & FLAG_ACK_REQ) {
-            sendAck(hdr.seq);
+            pendingAckSeq = hdr.seq;
+            ackPending    = true;
         }
 
-        if (hdr.flags & FLAG_ACK) {
-            // Optional: track ACKs here
+        // ---- ACK only packet ----
+        if (hdr.flags & FLAG_ACK)
             return;
-        }
 
-        // ---- Validate payload size ----
-        if (len != sizeof(RxPacket)) {
-            Serial.printf(
-                "RX size mismatch: got %d expected %d\n",
-                len, sizeof(RxPacket)
-            );
+        // ---- payload validation ----
+        if (len != sizeof(RxPacket))
             return;
-        }
 
         RxPacket pkt;
         memcpy(&pkt, data, sizeof(RxPacket));
 
-        // ---- Sequence tracking ----
         if (lastRxSeq != 0 && pkt.seq != lastRxSeq + 1) {
-            // packet drop (optional logging)
+            // optional drop detection
         }
 
         lastRxSeq = pkt.seq;
@@ -154,19 +180,11 @@ private:
     // ===== TX CALLBACK =====
     static void txThunk(const uint8_t*,
                         esp_now_send_status_t) {
-        // Optional: track delivery success
+        // intentionally empty
     }
 
-    // ===== ACK =====
-    void sendAck(uint32_t seq) {
-        PacketHeader ack{};
-        ack.seq   = seq;
-        ack.flags = FLAG_ACK;
 
-        esp_now_send(
-            peerMAC,
-            reinterpret_cast<uint8_t*>(&ack),
-            sizeof(PacketHeader)
-        );
-    }
+    Radio() = default;
+    Radio(const Radio&) = delete;
+    Radio& operator=(const Radio&) = delete;
 };

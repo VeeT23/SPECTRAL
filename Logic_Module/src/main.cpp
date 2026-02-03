@@ -4,16 +4,18 @@
 #include "screen.h"
 #include "buzzer.h"
 // Peripherals
-#include "packet.h"
 #include "global_state.h" //Holds radio + global data
 #include "can_bus.h"
 // Main loop
 #include "control.h"
 
 
-void handlePacket(const ControlPacket& pkt) {
-    Serial.print("Callback");
+void handlePacket(const ControlPacket& pkt)
+{
+    latest_control_pkt = pkt;        // copy
+    control_pkt_pending = true;      // signal
 }
+
 
 /**
  * Main boot sequence
@@ -45,7 +47,7 @@ void setup()
     Serial.println("Initializing Radio...");
     auto& radio = RadioInstance();
     radio.onPacket  = handlePacket;
-    if (!radio.begin(CONTROLLER_MAC)) {
+    if (!radio.begin(CONTROLLER_MAC, 1)) {
         Serial.println("Radio init failed!");
         while (true) { delay(1000); }
     }
@@ -71,6 +73,6 @@ void setup()
 
 void loop()
 {
-    RadioInstance().update(); // Checks heartbeat
+    
     vTaskDelay(portMAX_DELAY);
 }

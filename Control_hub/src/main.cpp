@@ -9,6 +9,7 @@
 #include "packet.h"
 
 // ================= INPUT DEVICES ===============
+
 Joystick joy_left(
     PINS::JOY_LEFT::X,
     PINS::JOY_LEFT::Y,
@@ -25,31 +26,38 @@ Joystick joy_right(
     true
 );
 
+// ================= RADIO =======================
+
+using ControllerRadio = Radio<ControlPacket, TelemetryPacket>;
+ControllerRadio& radio = ControllerRadio::instance();
+
 // ================= SETUP =======================
+
 void setup()
 {
     delay(2000);
-    Wire.begin();
     Serial.begin(115200);
+    Wire.begin();
 
     Screen::instance().init(0x3C);
-    
-    // ---- Radio singleton ----
-    auto& radio = Radio<ControlPacket, TelemetryPacket>::instance();
-    if (!radio.begin(ROBOT_MAC))
-    {
+
+    if (!radio.begin(ROBOT_MAC, 1)) {
         Serial.println("Radio init failed!");
         while (true) { delay(1000); }
     }
 
-    // ---- Telemetry received from robot ----
+    // ---- Telemetry from robot ----
     radio.onPacket = [](const TelemetryPacket& pkt)
     {
-        Serial.print("Battery: ");
-        Serial.println(pkt.battery_v);
+        static uint32_t lastPrint = 0;
+        if (millis() - lastPrint > 500) {
+            lastPrint = millis();
+            Serial.print("Battery: ");
+            Serial.println(pkt.battery_v);
+        }
     };
 
-    // ---- Robot timeout ----
+    // ---- Link timeout ----
     radio.onTimeout = []()
     {
         Serial.println("Robot link lost!");
@@ -57,33 +65,31 @@ void setup()
 }
 
 // ================= LOOP ========================
+
 void loop()
 {
-    delay(10);
-    auto& radio = Radio<ControlPacket, TelemetryPacket>::instance();
-
     joy_left.poll();
     joy_right.poll();
 
     static uint32_t lastSend = 0;
 
     // ---- Send commands at 100 Hz ----
-    if (millis() - lastSend >= 10)
-    {
+    if (millis() - lastSend >= 10) {
         lastSend = millis();
 
         ControlPacket cmd{};
         cmd.left_vel  = joy_left.y();
         cmd.right_vel = joy_right.y();
-        cmd.flags     = 0;
-        radio.send(cmd);
+
+        radio.send(cmd, false); // explicit: no ACK
     }
 
     radio.update();
 
     // ---- UI ----
-    Screen::instance().gfx().clearDisplay();
+    auto& gfx = Screen::instance().gfx();
+    gfx.clearDisplay();
     joy_left.draw(0, 0);
     joy_right.draw(64, 0);
-    Screen::instance().gfx().display();
+    gfx.display();
 }

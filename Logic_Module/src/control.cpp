@@ -20,7 +20,7 @@ void poll_sensors()
     ir_raw[3 * SENSORS_PER_MODULE + sensor_idx] = analogRead(PINS::S1);
     ir_raw[4 * SENSORS_PER_MODULE + sensor_idx] = analogRead(PINS::S0);
 
-        // Increment, then set -> lets mux stabalize between ticks while MCU does other things.
+    // Increment, then set -> lets mux stabalize between ticks while MCU does other things.
     sensor_idx++;
     sensor_idx = (sensor_idx == SENSORS_PER_MODULE) ? 0 : sensor_idx;
     setMuxAddress(sensor_idx);
@@ -40,7 +40,6 @@ void controlTask(void *arg)
     motor_left.enterClosedLoop();
     motor_right.enterClosedLoop();
 
-    
     for (;;)
     {
         TickType_t ticks = xTaskGetTickCount();
@@ -48,17 +47,33 @@ void controlTask(void *arg)
 
         // =================== LOOP BEGIN ===================
 
+        // ---------- PROCESS RADIO ----------
+
+        RadioInstance().update(); // Checks heartbeat
+
+        if (control_pkt_pending)
+        {
+            Serial.println("Control Packet Received");
+            control_pkt_pending = false;
+
+            const ControlPacket &pkt = latest_control_pkt;
+
+            // Example usage
+            //motor_left.setVelocity(pkt.left_vel);
+            //motor_right.setVelocity(pkt.right_vel);
+        }
+
         // ---------- PROCESS CAN ----------
         twai_message_t msg;
         if (CANBus::instance().receive(msg))
         {
             motor_left.processTwaiFrame(msg, now_ms);
-            motor_right.processTwaiFrame(msg,now_ms);
+            motor_right.processTwaiFrame(msg, now_ms);
         }
 
         // ---------- PROCESS SENSORS ----------
         poll_sensors();
-        
+
         // ---------- UPDATE MOTORS ----------
         motor_left.setVelocity(0);
         motor_right.setVelocity(0);
@@ -70,11 +85,10 @@ void controlTask(void *arg)
             lastPrint = ticks;
             for (uint8_t i = 0; i < TOTAL_SENSORS; i++)
             {
-                Screen::instance().gfx().drawRect((TOTAL_SENSORS - i) * 3,0,2,(ir_raw[i] / 4096.0 * 64),SSD1306_WHITE);
+                Screen::instance().gfx().drawRect((TOTAL_SENSORS - i) * 3, 0, 2, (ir_raw[i] / 4096.0 * 64), SSD1306_WHITE);
             }
             Screen::instance().show();
         }
-            
 
         // =================== LOOP END ===================
         vTaskDelayUntil(&lastWake, CONTROL_PERIOD);
