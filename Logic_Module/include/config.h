@@ -11,6 +11,8 @@ constexpr TickType_t TELEMETRY_PERIOD = pdMS_TO_TICKS(50);
 constexpr uint8_t NUM_MODULES = 5;
 constexpr uint8_t SENSORS_PER_MODULE = 8;
 constexpr uint8_t TOTAL_SENSORS = NUM_MODULES * SENSORS_PER_MODULE;
+constexpr uint16_t IR_THRESHOLD = 2000; // Example threshold value
+
 
 // ---------------- RADIO ----------------
 

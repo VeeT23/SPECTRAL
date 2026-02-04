@@ -21,8 +21,8 @@ struct MotorTelemetry
 class Motor
 {
 public:
-    explicit Motor(uint8_t node_id)
-        : node_id_(node_id) {}
+    explicit Motor(uint8_t node_id, bool inverted = false)
+        : node_id_(node_id), inverted_(inverted) {}
 
     // ---------- Commands ----------
     void clearErrors()
@@ -37,6 +37,10 @@ public:
 
     void setVelocity(float vel, float torque_ff = 0.0f)
     {
+        if (inverted_)
+        {
+            vel = -vel;
+        }
         uint8_t data[8];
         memcpy(&data[0], &vel, sizeof(float));
         memcpy(&data[4], &torque_ff, sizeof(float));
@@ -94,6 +98,7 @@ public:
     }
 
 private:
+    const bool inverted_;
     uint8_t node_id_;
     MotorTelemetry telemetry_{};
 

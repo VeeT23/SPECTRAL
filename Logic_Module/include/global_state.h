@@ -7,6 +7,7 @@
 
 static uint8_t sensor_idx = 0; // Current selected sensor
 static uint16_t ir_raw[TOTAL_SENSORS];
+static bool ir_processed[TOTAL_SENSORS];
 
 // ---------- RADIO ----------
 

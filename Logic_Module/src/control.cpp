@@ -26,6 +26,31 @@ void poll_sensors()
     setMuxAddress(sensor_idx);
 }
 
+void proccess_ir_data()
+{
+    for (uint8_t i = 0; i < TOTAL_SENSORS; i++)
+    {
+        ir_processed[i] = (ir_raw[i] > IR_THRESHOLD);
+    }
+}
+
+uint8_t get_error()
+{
+    for (uint8_t i = 0; i < TOTAL_SENSORS / 2; i++)
+    {
+        // Starting from the center sensors, move outwards, finding the first activated sensor
+        if (ir_processed[TOTAL_SENSORS / 2 - 1 - i])
+        {
+            return i;
+        }
+        if (ir_processed[TOTAL_SENSORS / 2 + i])
+        {
+            return TOTAL_SENSORS / 2 + i;
+        }
+    }
+    return 0; // No error detected
+}
+
 void controlTask(void *arg)
 {
     // ---------- Task Scheduling -----------
@@ -34,8 +59,8 @@ void controlTask(void *arg)
     TickType_t lastPrint = lastWake;
 
     // ---------- ODrive -----------
-    Motor motor_left(1);
-    Motor motor_right(2);
+    Motor motor_left(2, true);  // Inverted left motor
+    Motor motor_right(1);
 
     motor_left.enterClosedLoop();
     motor_right.enterClosedLoop();
@@ -75,8 +100,8 @@ void controlTask(void *arg)
         poll_sensors();
 
         // ---------- UPDATE MOTORS ----------
-        motor_left.setVelocity(0);
-        motor_right.setVelocity(0);
+        motor_left.setVelocity(1.0f);
+        motor_right.setVelocity(1.0f);
 
         // ---------- DEBUG ----------
         if (ticks - lastPrint >= DRAW_PERIOD)
@@ -85,7 +110,7 @@ void controlTask(void *arg)
             lastPrint = ticks;
             for (uint8_t i = 0; i < TOTAL_SENSORS; i++)
             {
-                Screen::instance().gfx().drawRect((TOTAL_SENSORS - i) * 3, 0, 2, (ir_raw[i] / 4096.0 * 64), SSD1306_WHITE);
+                Screen::instance().gfx().drawRect((TOTAL_SENSORS - i) * 3, 0, 2, (ir_processed[i] ? 64 : 0), SSD1306_WHITE);
             }
             Screen::instance().show();
         }
