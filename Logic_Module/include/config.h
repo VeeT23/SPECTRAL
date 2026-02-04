@@ -13,7 +13,8 @@ constexpr uint8_t SENSORS_PER_MODULE = 8;
 constexpr uint8_t TOTAL_SENSORS = NUM_MODULES * SENSORS_PER_MODULE;
 
 // ---------------- RADIO ----------------
-constexpr uint8_t CONTROLLER_MAC[] = { 0xD8, 0x3B, 0xDA, 0x46, 0x57, 0x80 };
+
+const uint8_t CONTROLLER_MAC[6] = {0xA0, 0x85, 0xE3, 0x0F, 0xE3, 0x80};
 constexpr uint32_t RX_TIMEOUT_MS = 100;
 // ---------------- CAN ----------------
 constexpr uint32_t CAN_TX_TIMEOUT_MS = 20;

@@ -69,6 +69,10 @@ public:
         memcpy(peer.peer_addr, peerMAC, 6);
         peer.channel = wifiChannel;
         peer.encrypt = false;
+        peer.ifidx   = WIFI_IF_STA;
+
+        
+        Serial.println("ESP MAC: " + WiFi.macAddress());
 
         if (esp_now_add_peer(&peer) != ESP_OK)
             return false;
