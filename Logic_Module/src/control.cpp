@@ -26,29 +26,71 @@ void poll_sensors()
     setMuxAddress(sensor_idx);
 }
 
-void proccess_ir_data()
+void process_ir_data()
 {
+    uint16_t filtered[TOTAL_SENSORS];
+
+    // Simple moving average filter with window size 3
+    for (uint8_t i = 1; i < TOTAL_SENSORS - 1; i++)
+    {
+        filtered[i] = (ir_raw[i - 1] + ir_raw[i] + ir_raw[i + 1]) / 3;
+    }
+
+    // Edge cases - just average with the one neighbor
+    filtered[0] = (ir_raw[0] + ir_raw[1]) / 2;
+    filtered[TOTAL_SENSORS - 1] =
+        (ir_raw[TOTAL_SENSORS - 2] + ir_raw[TOTAL_SENSORS - 1]) / 2;
+
+    // Final threshold masking
     for (uint8_t i = 0; i < TOTAL_SENSORS; i++)
     {
-        ir_processed[i] = (ir_raw[i] > IR_THRESHOLD);
+        ir_processed[i] = (filtered[i] > IR_THRESHOLD);
     }
 }
 
-uint8_t get_error()
+int8_t get_error()
 {
-    for (uint8_t i = 0; i < TOTAL_SENSORS / 2; i++)
+    int8_t center_left = TOTAL_SENSORS / 2 - 1;
+    int8_t center_right = TOTAL_SENSORS / 2;
+
+    int8_t found_index = -1;
+
+    // Find closest active sensor to center
+    for (int8_t offset = 0; offset <= center_left; offset++)
     {
-        // Starting from the center sensors, move outwards, finding the first activated sensor
-        if (ir_processed[TOTAL_SENSORS / 2 - 1 - i])
+        if (ir_processed[center_left - offset])
         {
-            return i;
+            found_index = center_left - offset;
+            break;
         }
-        if (ir_processed[TOTAL_SENSORS / 2 + i])
+
+        if (ir_processed[center_right + offset])
         {
-            return TOTAL_SENSORS / 2 + i;
+            found_index = center_right + offset;
+            break;
         }
     }
-    return 0; // No error detected
+
+    if (found_index == -1)
+        return INT8_MAX; // No line detected
+
+    // Expand left
+    int8_t left = found_index;
+    while (left > 0 && ir_processed[left - 1])
+        left--;
+
+    // Expand right
+    int8_t right = found_index;
+    while (right < TOTAL_SENSORS - 1 && ir_processed[right + 1])
+        right++;
+
+    // Compute midpoint of span
+    int8_t midpoint = (left + right) / 2;
+
+    // Convert midpoint to signed error relative to center
+    int8_t center_index = (TOTAL_SENSORS - 1) / 2;
+
+    return midpoint - center_index;
 }
 
 void controlTask(void *arg)
@@ -59,17 +101,47 @@ void controlTask(void *arg)
     TickType_t lastPrint = lastWake;
 
     // ---------- ODrive -----------
-    Motor motor_left(2, true);  // Inverted left motor
+    Motor motor_left(2, true); // Inverted left motor
     Motor motor_right(1);
+
+    motor_left.clearErrors();
+    motor_right.clearErrors();
+
+    xTaskDelayUntil(&lastWake, pdMS_TO_TICKS(10)); // Wait for ODrives to process clear errors command
 
     motor_left.enterClosedLoop();
     motor_right.enterClosedLoop();
 
+    motor_left.setVelocity(0);
+    motor_right.setVelocity(0);
+
+    motor_left.requestEncoder();
+    motor_right.requestEncoder();
+
+    if (!motor_left.waitForEncoder(50))
+    {
+        Serial.println("Left encoder timeout!");
+    }
+
+    if (!motor_right.waitForEncoder(50))
+    {
+        Serial.println("Right encoder timeout!");
+    }
+
+    motor_left.zeroPosition();
+    motor_right.zeroPosition();
+
+    int8_t prev_error = 0;
+    int8_t valid_error = 0;
+    float initial_rotational_offset = 0.0f;
+    bool line_lost = false;
     for (;;)
     {
         TickType_t ticks = xTaskGetTickCount();
         uint32_t now_ms = ticks * portTICK_PERIOD_MS;
 
+
+        
         // =================== LOOP BEGIN ===================
 
         // ---------- PROCESS RADIO ----------
@@ -82,15 +154,11 @@ void controlTask(void *arg)
             control_pkt_pending = false;
 
             const ControlPacket &pkt = latest_control_pkt;
-
-            // Example usage
-            //motor_left.setVelocity(pkt.left_vel);
-            //motor_right.setVelocity(pkt.right_vel);
         }
 
         // ---------- PROCESS CAN ----------
         twai_message_t msg;
-        if (CANBus::instance().receive(msg))
+        while (CANBus::instance().receive(msg, 0))
         {
             motor_left.processTwaiFrame(msg, now_ms);
             motor_right.processTwaiFrame(msg, now_ms);
@@ -98,21 +166,48 @@ void controlTask(void *arg)
 
         // ---------- PROCESS SENSORS ----------
         poll_sensors();
+        process_ir_data();
+        int8_t error = get_error();                       // returns INT8_MAX if no line detected
+
+        float current_rotational_offset = motor_left.telemetry().position - motor_right.telemetry().position;
+
+        if (error == INT8_MAX && !line_lost) // Line just lost
+        {
+            line_lost = true;
+            Serial.println("Line lost!");
+
+            valid_error = (prev_error < 0) ? -TOTAL_SENSORS : TOTAL_SENSORS; // If no line detected, keep previous error but amplified
+            initial_rotational_offset = current_rotational_offset; // Update initial offset to current when line is lost
+        }
+        else if (error != INT8_MAX) // Line found again
+        {
+            line_lost = false;
+            valid_error = error;
+            prev_error = error;
+        }
+        
 
         // ---------- UPDATE MOTORS ----------
-        motor_left.setVelocity(1.0f);
-        motor_right.setVelocity(1.0f);
+        motor_left.setVelocity(MAX_REV + valid_error / static_cast<float>(TOTAL_SENSORS / 2) * MAX_REV);
+        motor_right.setVelocity(MAX_REV - valid_error / static_cast<float>(TOTAL_SENSORS / 2) * MAX_REV);
 
         // ---------- DEBUG ----------
         if (ticks - lastPrint >= DRAW_PERIOD)
         {
             Screen::instance().clear();
-            lastPrint = ticks;
+            // Serial.printf("Error: %d\n", error);
+            //Serial.print("Motor Left - Pos: " + String(motor_left.telemetry().position, 2) + " Vel: " + String(motor_left.telemetry().velocity, 2) + " IsAlive: " + String(motor_left.alive(now_ms)));
+            //Serial.println(" | Motor Right - Pos: " + String(motor_right.telemetry().position, 2) + " Vel: " + String(motor_right.telemetry().velocity, 2) + " IsAlive: " + String(motor_right.alive(now_ms)));
             for (uint8_t i = 0; i < TOTAL_SENSORS; i++)
             {
-                Screen::instance().gfx().drawRect((TOTAL_SENSORS - i) * 3, 0, 2, (ir_processed[i] ? 64 : 0), SSD1306_WHITE);
+                Screen::instance().gfx().drawRect((TOTAL_SENSORS - i) * 3, 0, 2, (ir_processed[i] ? 8 : 0), SSD1306_WHITE);
             }
+            Screen::instance().gfx().drawCircle((64 - (128 / TOTAL_SENSORS * error)), 12, 3, SSD1306_WHITE);
+            Screen::instance().gfx().setCursor(0, 30);
+            Screen::instance().gfx().print("Rot. offset: " + String(current_rotational_offset - initial_rotational_offset, 2));
             Screen::instance().show();
+
+            lastPrint = ticks;
         }
 
         // =================== LOOP END ===================

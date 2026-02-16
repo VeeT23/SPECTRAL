@@ -82,6 +82,7 @@ void loop()
         cmd.right_vel = joy_right.y();
 
         radio.send(cmd, false); // explicit: no ACK
+        Serial.println("Sent command");
     }
 
     radio.update();

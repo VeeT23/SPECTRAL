@@ -4,8 +4,18 @@
 // ---------------- CONTROL ----------------
 constexpr uint32_t CONTROL_HZ = 1000;
 constexpr TickType_t CONTROL_PERIOD = pdMS_TO_TICKS(1000 / CONTROL_HZ);
-constexpr TickType_t DRAW_PERIOD = pdMS_TO_TICKS(100);
+constexpr TickType_t DRAW_PERIOD = pdMS_TO_TICKS(40);
 constexpr TickType_t TELEMETRY_PERIOD = pdMS_TO_TICKS(50);
+
+constexpr uint8_t WHEEL_DIAMETER_MM = 60;
+
+constexpr float WHEEL_CIRCUMFERENCE_M =
+    (WHEEL_DIAMETER_MM * PI) / 1000.0f;
+
+constexpr float MAX_VELOCITY = 0.2f;   // m/s
+
+constexpr float MAX_REV = MAX_VELOCITY / WHEEL_CIRCUMFERENCE_M; // rev/s
+
 
 // ---------------- IR SENSORS ----------------
 constexpr uint8_t NUM_MODULES = 5;
@@ -16,10 +26,10 @@ constexpr uint16_t IR_THRESHOLD = 2000; // Example threshold value
 
 // ---------------- RADIO ----------------
 
-const uint8_t CONTROLLER_MAC[6] = {0xA0, 0x85, 0xE3, 0x0F, 0xE3, 0x80};
+const uint8_t CONTROLLER_MAC[6] = {0xD8, 0x3B, 0xDA, 0x46, 0x57, 0x80};
 constexpr uint32_t RX_TIMEOUT_MS = 100;
 // ---------------- CAN ----------------
-constexpr uint32_t CAN_TX_TIMEOUT_MS = 20;
+constexpr uint32_t CAN_TX_TIMEOUT_MS = 40;
 
 // ---------------- ODRIVE ----------------
 constexpr uint32_t ODRIVE_CMD_HEARTBEAT = 0x01;

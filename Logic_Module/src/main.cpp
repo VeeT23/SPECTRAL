@@ -54,7 +54,7 @@ void setup()
 
     // ---------- CAN INIT ----------
     Serial.println("Initializing CAN Bus...");
-    if (!CANBus::instance().begin(PINS::CAN_TX, PINS::CAN_RX, 250000))
+    if (!CANBus::instance().begin(PINS::CAN_TX, PINS::CAN_RX, 500000))
     {
         Serial.println("CAN init failed!");
         while (true) { delay(1000); }
