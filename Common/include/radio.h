@@ -51,37 +51,39 @@ public:
 
     // ===== INIT =====
     bool begin(const uint8_t peerMac[6], uint8_t wifiChannel) {
-        memcpy(peerMAC, peerMac, 6);
 
-        WiFi.mode(WIFI_STA);
-        WiFi.disconnect(true);
+    
+    memcpy(peerMAC, peerMac, 6);
 
-        esp_wifi_set_ps(WIFI_PS_NONE);
-        esp_wifi_set_channel(wifiChannel, WIFI_SECOND_CHAN_NONE);
+    WiFi.mode(WIFI_STA);
+    WiFi.disconnect(true);
 
-        if (esp_now_init() != ESP_OK)
-            return false;
+    if (esp_now_init() != ESP_OK)
+        return false;
 
-        esp_now_register_recv_cb(rxThunk);
-        esp_now_register_send_cb(txThunk);
+    esp_wifi_set_ps(WIFI_PS_NONE);
+    esp_wifi_set_channel(wifiChannel, WIFI_SECOND_CHAN_NONE);
 
-        esp_now_peer_info_t peer{};
-        memcpy(peer.peer_addr, peerMAC, 6);
-        peer.channel = wifiChannel;
-        peer.encrypt = false;
-        peer.ifidx   = WIFI_IF_STA;
+    esp_now_register_recv_cb(rxThunk);
+    esp_now_register_send_cb(txThunk);
 
-        
-        Serial.println("ESP MAC: " + WiFi.macAddress());
+    esp_now_peer_info_t peer{};
+    memcpy(peer.peer_addr, peerMAC, 6);
+    peer.channel = wifiChannel;
+    peer.encrypt = false;
+    peer.ifidx   = WIFI_IF_STA;
 
-        if (esp_now_add_peer(&peer) != ESP_OK)
-            return false;
+    Serial.println("ESP MAC: " + WiFi.macAddress());
 
-        return true;
-    }
+    if (esp_now_add_peer(&peer) != ESP_OK)
+        return false;
+
+    return true;
+}
+
 
     // ===== SEND =====
-    bool send(const TxPacket& pkt, bool requestAck = false) {
+    esp_err_t send(const TxPacket& pkt, bool requestAck = false) {
         txBuf = pkt;
         txBuf.seq   = ++txSeq;
         txBuf.flags = requestAck ? FLAG_ACK_REQ : 0;
@@ -90,7 +92,7 @@ public:
             peerMAC,
             reinterpret_cast<uint8_t*>(&txBuf),
             sizeof(TxPacket)
-        ) == ESP_OK;
+        );
     }
 
     // ===== UPDATE (CALL FROM LOOP OR TASK) =====

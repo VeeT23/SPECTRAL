@@ -186,6 +186,7 @@ void controlTask(void *arg)
             control_pkt_pending = false;
 
             const ControlPacket &pkt = latest_control_pkt;
+            Serial.println("RECIEVED PACKET");
         }
 
         // ---------- PROCESS CAN ----------
@@ -221,8 +222,16 @@ void controlTask(void *arg)
         float pid_output = pid_update(valid_error / static_cast<float>(TOTAL_SENSORS / 2), CONTROL_PERIOD * portTICK_PERIOD_MS / 1000.0f); // Normalize error to [-1, 1] range
 
         // ---------- UPDATE MOTORS ----------
-        motor_left.setVelocity(MAX_REV + pid_output * MAX_REV);
-        motor_right.setVelocity(MAX_REV - pid_output * MAX_REV);
+        if (ENABLE_MOTORS)
+        {
+            motor_left.setVelocity(MAX_REV + pid_output * MAX_REV);
+            motor_right.setVelocity(MAX_REV - pid_output * MAX_REV);
+        }
+        else
+        {
+            motor_left.setVelocity(0);
+            motor_right.setVelocity(0);
+        }
 
         // ---------- DEBUG ----------
         if (ticks - lastPrint >= DRAW_PERIOD)

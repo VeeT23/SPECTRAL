@@ -46,3 +46,6 @@ constexpr uint32_t ODRIVE_CMD_CLEAR_ERRORS = 0x18;
 constexpr uint32_t AXIS_STATE_CLOSED_LOOP = 8;
 
 constexpr uint32_t HEARTBEAT_TIMEOUT_MS = 200;
+
+// ---------------- DEBUG ----------------
+constexpr bool ENABLE_MOTORS = false;

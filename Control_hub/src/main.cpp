@@ -37,10 +37,15 @@ void setup()
 {
     delay(2000);
     Serial.begin(115200);
+    while (!Serial)
+    {
+        delay(100);
+    }
+    
     Wire.begin();
 
     Screen::instance().init(0x3C);
-
+    Serial.println("Controller starting...");
     if (!radio.begin(ROBOT_MAC, 1)) {
         Serial.println("Radio init failed!");
         while (true) { delay(1000); }
@@ -73,16 +78,17 @@ void loop()
 
     static uint32_t lastSend = 0;
 
-    // ---- Send commands at 100 Hz ----
-    if (millis() - lastSend >= 10) {
+    // ---- Send commands at 10 Hz ----
+    if (millis() - lastSend >= 100) {
         lastSend = millis();
 
         ControlPacket cmd{};
         cmd.left_vel  = joy_left.y();
         cmd.right_vel = joy_right.y();
 
-        radio.send(cmd, false); // explicit: no ACK
-        Serial.println("Sent command");
+        esp_err_t sent = radio.send(cmd, false);
+        Serial.print("Sent command: ");
+        Serial.println(static_cast<int>(sent));
     }
 
     radio.update();
