@@ -12,9 +12,13 @@ constexpr uint8_t WHEEL_DIAMETER_MM = 60;
 constexpr float WHEEL_CIRCUMFERENCE_M =
     (WHEEL_DIAMETER_MM * PI) / 1000.0f;
 
-constexpr float MAX_VELOCITY = 0.2f;   // m/s
+constexpr float MAX_VELOCITY = 0.5f;   // m/s
 
 constexpr float MAX_REV = MAX_VELOCITY / WHEEL_CIRCUMFERENCE_M; // rev/s
+
+constexpr float KP = 1.0f; // Proportional gain for line following
+constexpr float KI = 0.01f; // Integral gain for line following
+constexpr float KD = 0.01f; // Derivative gain for line following
 
 
 // ---------------- IR SENSORS ----------------

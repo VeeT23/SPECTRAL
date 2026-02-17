@@ -67,7 +67,7 @@ void setup()
     // ---------- BOOT FINISH ----------
     Serial.println("Boot sequence complete!");
     Buzzer::beep(2000,100);
-
+    delay(2000);
     setup_control();
 }
 
