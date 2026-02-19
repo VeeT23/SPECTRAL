@@ -73,6 +73,12 @@ void loop()
 
     radio.update();
 
+    TelemetryPacket pkt;
+    if(radio.recieve(pkt)) 
+    {
+        Serial.write((uint8_t*)&pkt, sizeof(pkt));
+    }
+
     // ---- UI ----
     auto& gfx = Screen::instance().gfx();
     gfx.clearDisplay();
