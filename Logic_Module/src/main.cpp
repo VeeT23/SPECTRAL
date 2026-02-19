@@ -10,13 +10,6 @@
 #include "control.h"
 
 
-void handlePacket(const ControlPacket& pkt)
-{
-    latest_control_pkt = pkt;        // copy
-    control_pkt_pending = true;      // signal
-}
-
-
 /**
  * Main boot sequence
  * see global_state.h for config
@@ -26,7 +19,7 @@ void setup()
 {
     delay(100);
     // ---------- SERIAL INIT ----------
-    Serial.begin(115200);
+    Serial.begin(SERIAL_BAUD);
     Serial.println("Booting...");
 
 
@@ -46,15 +39,14 @@ void setup()
     // ---------- RADIO INIT ----------
     Serial.println("Initializing Radio...");
     auto& radio = RadioInstance();
-    radio.onPacket  = handlePacket;
-    if (!radio.begin(CONTROLLER_MAC, 1)) {
+    if (!radio.begin(CONTROLLER_MAC, RX_TIMEOUT_MS, RADIO_DEBUG)) {
         Serial.println("Radio init failed!");
         while (true) { delay(1000); }
     }
 
     // ---------- CAN INIT ----------
     Serial.println("Initializing CAN Bus...");
-    if (!CANBus::instance().begin(PINS::CAN_TX, PINS::CAN_RX, 500000))
+    if (!CANBus::instance().begin(PINS::CAN_TX, PINS::CAN_RX, CAN_BITRATE))
     {
         Serial.println("CAN init failed!");
         while (true) { delay(1000); }
@@ -73,6 +65,5 @@ void setup()
 
 void loop()
 {
-    
     vTaskDelay(portMAX_DELAY);
 }

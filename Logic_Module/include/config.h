@@ -5,7 +5,6 @@
 constexpr uint32_t CONTROL_HZ = 1000;
 constexpr TickType_t CONTROL_PERIOD = pdMS_TO_TICKS(1000 / CONTROL_HZ);
 constexpr TickType_t DRAW_PERIOD = pdMS_TO_TICKS(40);
-constexpr TickType_t TELEMETRY_PERIOD = pdMS_TO_TICKS(50);
 
 constexpr uint8_t WHEEL_DIAMETER_MM = 60;
 
@@ -31,9 +30,17 @@ constexpr uint16_t IR_THRESHOLD = 2000; // Example threshold value
 // ---------------- RADIO ----------------
 
 const uint8_t CONTROLLER_MAC[6] = {0xD8, 0x3B, 0xDA, 0x46, 0x57, 0x80};
-constexpr uint32_t RX_TIMEOUT_MS = 100;
+constexpr uint32_t RX_TIMEOUT_MS = 1000;
+constexpr uint32_t TELEMETRY_FREQUENCY_HZ = 60;
+constexpr TickType_t TELEMETRY_PERIOD = pdMS_TO_TICKS(1000 / TELEMETRY_FREQUENCY_HZ);
+constexpr bool RADIO_DEBUG = false;
+
 // ---------------- CAN ----------------
+constexpr uint32_t CAN_BITRATE = 500000;
 constexpr uint32_t CAN_TX_TIMEOUT_MS = 40;
+
+// ---------------- SERIAL ----------------
+constexpr uint32_t SERIAL_BAUD = 115200;
 
 // ---------------- ODRIVE ----------------
 constexpr uint32_t ODRIVE_CMD_HEARTBEAT = 0x01;
@@ -49,3 +56,5 @@ constexpr uint32_t HEARTBEAT_TIMEOUT_MS = 200;
 
 // ---------------- DEBUG ----------------
 constexpr bool ENABLE_MOTORS = false;
+
+// See radio for RADIO_DEBUG

@@ -132,7 +132,7 @@ void controlTask(void *arg)
     // ---------- Task Scheduling -----------
     TickType_t lastWake = xTaskGetTickCount();
     TickType_t lastTelemetry = lastWake;
-    TickType_t lastPrint = lastWake;
+    TickType_t lastDraw = lastWake;
 
     // ---------- ODrive -----------
     Motor motor_left(2, true); // Inverted left motor
@@ -169,6 +169,12 @@ void controlTask(void *arg)
     int8_t valid_error = 0;
     float initial_rotational_offset = 0.0f;
     bool line_lost = false;
+
+    RadioInstance().reset_timeout(); // Reset radio timeout at startup
+
+    float recieved_steering = 0.0f;
+    float recieved_velocity = 0.0f;
+
     for (;;)
     {
         TickType_t ticks = xTaskGetTickCount();
@@ -176,17 +182,19 @@ void controlTask(void *arg)
 
         // =================== LOOP BEGIN ===================
 
-        // ---------- PROCESS RADIO ----------
+        // ---------- PROCESS RADIO CONTROL ----------
 
-        RadioInstance().update(); // Checks heartbeat
-
-        if (control_pkt_pending)
+        if (RadioInstance().update())
         {
-            Serial.println("Control Packet Received");
-            control_pkt_pending = false;
+            Serial.println("Timed out!");
+        }
 
-            const ControlPacket &pkt = latest_control_pkt;
-            Serial.println("RECIEVED PACKET");
+        
+        ControlPacket rx;
+        if (RadioInstance().recieve(rx))
+        {
+           recieved_steering = rx.steering;
+           recieved_velocity = rx.velocity;
         }
 
         // ---------- PROCESS CAN ----------
@@ -234,7 +242,7 @@ void controlTask(void *arg)
         }
 
         // ---------- DEBUG ----------
-        if (ticks - lastPrint >= DRAW_PERIOD)
+        if (ticks - lastDraw >= DRAW_PERIOD)
         {
             Screen::instance().clear();
             // Serial.printf("Error: %d\n", error);
@@ -245,11 +253,26 @@ void controlTask(void *arg)
                 Screen::instance().gfx().drawRect((TOTAL_SENSORS - i) * 3, 0, 2, ir_processed[i] ? 8 : 0, SSD1306_WHITE);
             }
             Screen::instance().gfx().drawCircle((64 - (128 / TOTAL_SENSORS * error)), 12, 3, SSD1306_WHITE);
+
+            Screen::instance().gfx().drawLine(64, 32, 64 + recieved_steering * 64, 32+recieved_velocity*32, SSD1306_WHITE);
             // Screen::instance().gfx().setCursor(0, 30);
             // Screen::instance().gfx().print("Rot. offset: " + String(current_rotational_offset - initial_rotational_offset, 2));
             Screen::instance().show();
 
-            lastPrint = ticks;
+            lastDraw = ticks;
+        }
+
+        // --------- SEND TELEMETRY ----------
+        if (ticks - lastTelemetry >= TELEMETRY_PERIOD)
+        {
+            TelemetryPacket tx{};
+            tx.velocity = (motor_left.telemetry().velocity + motor_right.telemetry().velocity) / 2.0f;
+            tx.steering = current_rotational_offset - initial_rotational_offset;
+            memcpy(tx.ir_raw, ir_raw, sizeof(ir_raw));
+            memcpy(tx.ir_processed, ir_processed, sizeof(ir_processed));
+
+            RadioInstance().send(tx);
+            lastTelemetry = ticks;
         }
 
         // =================== LOOP END ===================

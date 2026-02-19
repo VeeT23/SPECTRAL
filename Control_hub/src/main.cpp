@@ -28,7 +28,7 @@ Joystick joy_right(
 
 // ================= RADIO =======================
 
-using ControllerRadio = Radio<ControlPacket, TelemetryPacket>;
+using ControllerRadio = ESPNowRadio<ControlPacket, TelemetryPacket>;
 ControllerRadio& radio = ControllerRadio::instance();
 
 // ================= SETUP =======================
@@ -46,27 +46,11 @@ void setup()
 
     Screen::instance().init(0x3C);
     Serial.println("Controller starting...");
-    if (!radio.begin(ROBOT_MAC, 1)) {
+    if (!radio.begin(ROBOT_MAC, RX_TIMEOUT_MS, RADIO_DEBUG)) {
         Serial.println("Radio init failed!");
         while (true) { delay(1000); }
     }
 
-    // ---- Telemetry from robot ----
-    radio.onPacket = [](const TelemetryPacket& pkt)
-    {
-        static uint32_t lastPrint = 0;
-        if (millis() - lastPrint > 500) {
-            lastPrint = millis();
-            Serial.print("Battery: ");
-            Serial.println(pkt.battery_v);
-        }
-    };
-
-    // ---- Link timeout ----
-    radio.onTimeout = []()
-    {
-        Serial.println("Robot link lost!");
-    };
 }
 
 // ================= LOOP ========================
@@ -78,17 +62,13 @@ void loop()
 
     static uint32_t lastSend = 0;
 
-    // ---- Send commands at 10 Hz ----
-    if (millis() - lastSend >= 100) {
+    if (millis() - lastSend >= TX_PERIOD) {
         lastSend = millis();
 
         ControlPacket cmd{};
-        cmd.left_vel  = joy_left.y();
-        cmd.right_vel = joy_right.y();
-
-        esp_err_t sent = radio.send(cmd, false);
-        Serial.print("Sent command: ");
-        Serial.println(static_cast<int>(sent));
+        cmd.velocity = joy_left.y(); // Forward/backward on left stick
+        cmd.steering = joy_right.x(); // Left/right on right stick
+        radio.send(cmd);
     }
 
     radio.update();
@@ -99,4 +79,5 @@ void loop()
     joy_left.draw(0, 0);
     joy_right.draw(64, 0);
     gfx.display();
+    delay(10);
 }

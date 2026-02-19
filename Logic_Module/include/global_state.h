@@ -1,7 +1,7 @@
 #pragma once
 #include "Radio.h"
 #include "config.h"
-
+#include "packet.h"
 
 // ========== GLOBAL DATA ==========
 
@@ -11,12 +11,7 @@ static bool ir_processed[TOTAL_SENSORS];
 
 // ---------- RADIO ----------
 
-// ---- Control packet from controller ----
-static volatile bool control_pkt_pending = false;
-static ControlPacket latest_control_pkt{};
-
-
-using GlobalRadio = Radio<TelemetryPacket, ControlPacket>;
+using GlobalRadio = ESPNowRadio<TelemetryPacket, ControlPacket>;
 
 // Use 'static' here instead of 'inline' to avoid requiring C++17 inline variables.
 static GlobalRadio& RadioInstance() {
