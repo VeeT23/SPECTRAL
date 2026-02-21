@@ -10,7 +10,7 @@
 // ---------------- Telemetry ----------------
 struct MotorTelemetry
 {
-    float position = 0.0f; // turns
+    float revolutions = 0.0f; // turns
     float velocity = 0.0f; // turns/s
     uint8_t axis_state = 0;
     uint32_t axis_error = 0;
@@ -38,7 +38,7 @@ public:
 
     void zeroPosition()
     {
-        position_offset_ = telemetry_.position;
+        revolution_offset_ = telemetry_.revolutions;
     }
 
     void setVelocity(float vel, float torque_ff = 0.0f)
@@ -92,9 +92,9 @@ public:
                     vel = -vel;
                 }
 
-                pos -= position_offset_;
+                pos -= revolution_offset_;
 
-                telemetry_.position = pos;
+                telemetry_.revolutions = pos;
                 telemetry_.velocity = vel;
                 telemetry_.encoder_received = true; // mark fresh data
             }
@@ -146,7 +146,7 @@ public:
     }
 
 private:
-    float position_offset_ = 0.0f;
+    float revolution_offset_ = 0.0f;
     const bool inverted_;
     uint8_t node_id_;
     MotorTelemetry telemetry_{};

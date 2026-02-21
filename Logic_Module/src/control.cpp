@@ -4,127 +4,56 @@
 #include "screen.h"
 #include "global_state.h"
 #include "config.h"
+#include "sensor_array.h"
 
-inline void setMuxAddress(uint8_t addr)
+struct OdometryState
 {
-    digitalWrite(PINS::A0, addr & 0x01);
-    digitalWrite(PINS::A1, addr & 0x02);
-    digitalWrite(PINS::A2, addr & 0x04);
-}
+    float x = 0.0f;     // meters
+    float y = 0.0f;     // meters
+    float theta = 0.0f; // radians
 
-void poll_sensors()
+    float distance = 0.0f; // total arc length traveled (meters)
+
+    float prev_rev_L = 0.0f;
+    float prev_rev_R = 0.0f;
+};
+
+inline void updateOdometry(
+    OdometryState &state,
+    float current_rev_L,
+    float current_rev_R)
 {
-    ir_raw[0 * SENSORS_PER_MODULE + sensor_idx] = analogRead(PINS::S4);
-    ir_raw[1 * SENSORS_PER_MODULE + sensor_idx] = analogRead(PINS::S3);
-    ir_raw[2 * SENSORS_PER_MODULE + sensor_idx] = analogRead(PINS::S2);
-    ir_raw[3 * SENSORS_PER_MODULE + sensor_idx] = analogRead(PINS::S1);
-    ir_raw[4 * SENSORS_PER_MODULE + sensor_idx] = analogRead(PINS::S0);
+    // ---- Compute delta revolutions ----
+    float delta_rev_L = current_rev_L - state.prev_rev_L;
+    float delta_rev_R = current_rev_R - state.prev_rev_R;
 
-    // Increment, then set -> lets mux stabalize between ticks while MCU does other things.
-    sensor_idx++;
-    sensor_idx = (sensor_idx == SENSORS_PER_MODULE) ? 0 : sensor_idx;
-    setMuxAddress(sensor_idx);
-}
-
-void process_ir_data()
-{
-    uint16_t filtered[TOTAL_SENSORS];
-
-    if (TOTAL_SENSORS == 0)
-        return;
-
-    if (TOTAL_SENSORS == 1)
+    if (fabs(delta_rev_L) > 5 || fabs(delta_rev_R) > 5)
     {
-        filtered[0] = ir_raw[0];
-    }
-    else
-    {
-        // First element
-        filtered[0] = (ir_raw[0] + ir_raw[1]) / 2;
-
-        // Middle elements
-        for (uint8_t i = 1; i < TOTAL_SENSORS - 1; i++)
-        {
-            filtered[i] = (ir_raw[i - 1] + ir_raw[i] + ir_raw[i + 1]) / 3;
-        }
-
-        // Last element
-        filtered[TOTAL_SENSORS - 1] =
-            (ir_raw[TOTAL_SENSORS - 2] + ir_raw[TOTAL_SENSORS - 1]) / 2;
+        delta_rev_L = 0;
+        delta_rev_R = 0;
     }
 
-    // Threshold masking
-    for (uint8_t i = 0; i < TOTAL_SENSORS; i++)
-    {
-        ir_processed[i] = (filtered[i] > IR_THRESHOLD);
-    }
-}
+    state.prev_rev_L = current_rev_L;
+    state.prev_rev_R = current_rev_R;
 
-int8_t get_error()
-{
-    if (TOTAL_SENSORS == 0)
-        return INT8_MAX;
+    // ---- Convert revolutions -> linear distance (meters) ----
+    float dL = delta_rev_L * WHEEL_CIRCUMFERENCE_M;
+    float dR = delta_rev_R * WHEEL_CIRCUMFERENCE_M;
 
-    int8_t found_index = -1;
+    // ---- Differential drive kinematics ----
+    float d = 0.5f * (dL + dR);                 // forward arc length
+    float dtheta = (dR - dL) / WHEEL_SPACING_M; // radians
 
-    // Define the two center positions
-    int8_t center_left = (TOTAL_SENSORS - 1) / 2;
-    int8_t center_right = TOTAL_SENSORS / 2;
+    // Accumulate arc length for distance traveled
+    state.distance += d;
 
-    // Search outward symmetrically
-    for (int8_t offset = 0; offset <= center_right; offset++)
-    {
-        if (center_left - offset >= 0 &&
-            ir_processed[center_left - offset])
-        {
-            found_index = center_left - offset;
-            break;
-        }
+    // ---- Midpoint integration ----
+    float theta_mid = state.theta + 0.5f * dtheta;
 
-        if (center_right + offset < TOTAL_SENSORS &&
-            ir_processed[center_right + offset])
-        {
-            found_index = center_right + offset;
-            break;
-        }
-    }
+    state.x += d * cosf(theta_mid);
+    state.y += d * sinf(theta_mid);
 
-    if (found_index == -1)
-        return INT8_MAX; // No line detected
-
-    // Expand left
-    int8_t left = found_index;
-    while (left > 0 && ir_processed[left - 1])
-        left--;
-
-    // Expand right
-    int8_t right = found_index;
-    while (right < TOTAL_SENSORS - 1 && ir_processed[right + 1])
-        right++;
-
-    // Midpoint of detected span
-    int16_t midpoint_times2 = left + right;
-    // (left + right) = 2 * midpoint
-
-    // True center scaled by 2
-    int16_t center_times2 = TOTAL_SENSORS - 1;
-
-    // Signed error
-    int16_t error = midpoint_times2 - center_times2;
-
-    return (int8_t)(error / 2);
-}
-
-float pid_update(float error, float dt)
-{
-    static float integral = 0.0f;
-    static float prev_error = 0.0f;
-
-    integral += error * dt;
-    float derivative = (error - prev_error) / dt;
-    prev_error = error;
-
-    return KP * error + KI * integral + KD * derivative;
+    state.theta += dtheta;
 }
 
 void controlTask(void *arg)
@@ -133,6 +62,8 @@ void controlTask(void *arg)
     TickType_t lastWake = xTaskGetTickCount();
     TickType_t lastTelemetry = lastWake;
     TickType_t lastDraw = lastWake;
+    TickType_t lastIdle = lastWake;
+    TickType_t activeDuration = 0;
 
     // ---------- ODrive -----------
     Motor motor_left(2, true); // Inverted left motor
@@ -167,14 +98,18 @@ void controlTask(void *arg)
 
     int8_t prev_error = 0;
     int8_t valid_error = 0;
-    float initial_rotational_offset = 0.0f;
+
+    float distance = 0.0f;
+
+    OdometryState odom;
+
     bool line_lost = false;
 
     RadioInstance().reset_timeout(); // Reset radio timeout at startup
 
-    float recieved_steering = 0.0f;
-    float recieved_velocity = 0.0f;
-
+    float throttle_left = 0.0f;
+    float throttle_right = 0.0f;
+    uint8_t current_mode = 0;
     for (;;)
     {
         TickType_t ticks = xTaskGetTickCount();
@@ -187,14 +122,26 @@ void controlTask(void *arg)
         if (RadioInstance().update())
         {
             Serial.println("Timed out!");
+            current_mode = 0;
         }
 
-        
         ControlPacket rx;
         if (RadioInstance().recieve(rx))
         {
-           recieved_steering = rx.steering;
-           recieved_velocity = rx.velocity;
+            if (current_mode != rx.control_mode && rx.control_mode == 1) // Just entered line following mode, reset odometry and PID state
+            {
+                lastIdle = ticks;
+                motor_left.zeroPosition();
+                motor_right.zeroPosition();
+                odom = OdometryState{};
+                odom.prev_rev_L = motor_left.telemetry().revolutions;
+                odom.prev_rev_R = motor_right.telemetry().revolutions;
+                Serial.println("Entered line following mode, resetting odometry and PID state");
+            }
+
+            current_mode = rx.control_mode;
+            throttle_left = rx.throttle_left;
+            throttle_right = rx.throttle_right;
         }
 
         // ---------- PROCESS CAN ----------
@@ -206,11 +153,20 @@ void controlTask(void *arg)
         }
 
         // ---------- PROCESS SENSORS ----------
-        poll_sensors();
+
+        for (int i = 0; i < TOTAL_SENSORS / SENSORS_PER_MODULE; i++)
+        {
+            poll_sensors();
+        }
+
         process_ir_data();
         int8_t error = get_error(); // returns INT8_MAX if no line detected
 
-        float current_rotational_offset = motor_left.telemetry().position - motor_right.telemetry().position;
+        // ---------- UPDATE CONTROL STATE ----------
+        updateOdometry(
+            odom,
+            motor_left.telemetry().revolutions,
+            motor_right.telemetry().revolutions);
 
         if (error == INT8_MAX && !line_lost) // Line just lost
         {
@@ -218,7 +174,6 @@ void controlTask(void *arg)
             Serial.println("Line lost!");
 
             valid_error = (prev_error < 0) ? -TOTAL_SENSORS : TOTAL_SENSORS; // If no line detected, keep previous error but amplified
-            initial_rotational_offset = current_rotational_offset;           // Update initial offset to current when line is lost
         }
         else if (error != INT8_MAX) // Line found again
         {
@@ -226,37 +181,52 @@ void controlTask(void *arg)
             valid_error = error;
             prev_error = error;
         }
-
-        float pid_output = pid_update(valid_error / static_cast<float>(TOTAL_SENSORS / 2), CONTROL_PERIOD * portTICK_PERIOD_MS / 1000.0f); // Normalize error to [-1, 1] range
-
-        // ---------- UPDATE MOTORS ----------
-        if (ENABLE_MOTORS)
+        float pid_output = 0.0F;
+        if (current_mode == 1)
         {
-            motor_left.setVelocity(MAX_REV + pid_output * MAX_REV);
-            motor_right.setVelocity(MAX_REV - pid_output * MAX_REV);
+            activeDuration = ticks - lastIdle;
+            pid_output = pid_update(valid_error / static_cast<float>(TOTAL_SENSORS / 2), CONTROL_PERIOD * portTICK_PERIOD_MS / 1000.0f); // Normalize error to [-1, 1] range
         }
-        else
+        // ---------- UPDATE MOTORS ----------
+
+        switch (current_mode)
+        {
+        case 0:
         {
             motor_left.setVelocity(0);
             motor_right.setVelocity(0);
+            break;
+        }
+        case 1:
+        {
+            if (ENABLE_MOTORS)
+            {
+                motor_left.setVelocity(MAX_REV + pid_output * MAX_REV);
+                motor_right.setVelocity(MAX_REV - pid_output * MAX_REV);
+            }
+            else
+            {
+                motor_left.setVelocity(0);
+                motor_right.setVelocity(0);
+            }
+            break;
+        }
+        case 2:
+        {
+            motor_left.setVelocity(MAX_REV * throttle_left);
+            motor_right.setVelocity(MAX_REV * throttle_right);
+        }
         }
 
         // ---------- DEBUG ----------
         if (ticks - lastDraw >= DRAW_PERIOD)
         {
             Screen::instance().clear();
-            // Serial.printf("Error: %d\n", error);
-            // Serial.print("Motor Left - Pos: " + String(motor_left.telemetry().position, 2) + " Vel: " + String(motor_left.telemetry().velocity, 2) + " IsAlive: " + String(motor_left.alive(now_ms)));
-            // Serial.println(" | Motor Right - Pos: " + String(motor_right.telemetry().position, 2) + " Vel: " + String(motor_right.telemetry().velocity, 2) + " IsAlive: " + String(motor_right.alive(now_ms)));
             for (uint8_t i = 0; i < TOTAL_SENSORS; i++)
             {
                 Screen::instance().gfx().drawRect((TOTAL_SENSORS - i) * 3, 0, 2, ir_processed[i] ? 8 : 0, SSD1306_WHITE);
             }
             Screen::instance().gfx().drawCircle((64 - (128 / TOTAL_SENSORS * error)), 12, 3, SSD1306_WHITE);
-
-            Screen::instance().gfx().drawLine(64, 32, 64 + recieved_steering * 64, 32+recieved_velocity*32, SSD1306_WHITE);
-            // Screen::instance().gfx().setCursor(0, 30);
-            // Screen::instance().gfx().print("Rot. offset: " + String(current_rotational_offset - initial_rotational_offset, 2));
             Screen::instance().show();
 
             lastDraw = ticks;
@@ -266,12 +236,45 @@ void controlTask(void *arg)
         if (ticks - lastTelemetry >= TELEMETRY_PERIOD)
         {
             TelemetryPacket tx{};
-            tx.velocity = (motor_left.telemetry().velocity + motor_right.telemetry().velocity) / 2.0f;
-            tx.steering = current_rotational_offset - initial_rotational_offset;
-            memcpy(tx.ir_raw, ir_raw, sizeof(ir_raw));
-            memcpy(tx.ir_processed, ir_processed, sizeof(ir_processed));
+
+            tx.ticks_since_idle = activeDuration;
+
+            // Average wheel velocity
+            float avg_rev_per_sec =
+                (motor_left.telemetry().velocity +
+                 motor_right.telemetry().velocity) *
+                0.5f;
+
+            // Convert rev/s → m/s
+            tx.velocity = avg_rev_per_sec * WHEEL_CIRCUMFERENCE_M;
+
+            tx.steering = odom.theta * (180.0f / PI); // Convert radians → degrees
+
+            // Copy raw IR
+            memcpy(tx.ir_raw, ir_raw, sizeof(tx.ir_raw));
+
+            // Pack 40 bools into 64-bit bitfield
+            uint64_t packed = 0;
+
+            for (uint8_t i = 0; i < 40; i++)
+            {
+                if (ir_processed[i])
+                {
+                    packed |= (1ULL << i);
+                }
+            }
+
+            tx.packed_ir_processed = packed;
+
+            tx.line_error = error;
+            tx.pid_output = pid_output;
+
+            tx.distance = odom.distance; // Approximate distance traveled (relative to start)
+            tx.approx_x = odom.x;
+            tx.approx_y = odom.y;
 
             RadioInstance().send(tx);
+
             lastTelemetry = ticks;
         }
 
