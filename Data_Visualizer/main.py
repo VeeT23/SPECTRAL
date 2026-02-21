@@ -11,7 +11,7 @@ dashboard = TelemetryDashboard()
 # ---------------- MAP ----------------
 map_widget = dashboard.add_map("Course Map", row=0, col=1, rowspan=2, colspan=2, width=244, height=244)
 
-img = Image.open("pathfinder_2026.png").convert("L").rotate(270, expand=True)
+img = Image.open("../pathfinder_2026.png").convert("L").rotate(270, expand=True)
 img = np.array(img)
 
 map_widget.set_background(img)
