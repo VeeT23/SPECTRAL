@@ -60,44 +60,35 @@ def generate_path_from_skeleton(skeleton, epsilon=1.0):
     return simplified
 
 
-def compute_relative_angles(path):
-    """
-    Computes the relative angle (in radians) between each line segment
-    and its previous segment in the path.
-
-    Parameters:
-        path: Nx2 numpy array of (x, y) coordinates
-
-    Returns:
-        angles: list of relative angles in radians
-                length = len(path) - 2
-                angles[i] is the angle from segment i -> segment i+1
-    """
-
-    if len(path) < 3:
+def compute_segment_lengths(path):
+    if len(path) < 2:
         return []
 
-    angles = []
+    lengths = []
 
+    for i in range(len(path) - 1):
+        v = path[i + 1] - path[i]
+        lengths.append(np.linalg.norm(v))
+
+    return np.array(lengths)
+
+
+def compute_curvature(path):
+    curvatures = []
     for i in range(1, len(path) - 1):
-        p0 = path[i - 1]
-        p1 = path[i]
-        p2 = path[i + 1]
+        p0, p1, p2 = path[i-1], path[i], path[i+1]
 
-        # vector from p0 -> p1
-        v1 = p1 - p0
-        # vector from p1 -> p2
-        v2 = p2 - p1
+        a = np.linalg.norm(p1 - p0)
+        b = np.linalg.norm(p2 - p1)
+        c = np.linalg.norm(p2 - p0)
 
-        # angle between vectors using arctangent (signed)
-        angle1 = np.arctan2(v1[1], v1[0])
-        angle2 = np.arctan2(v2[1], v2[0])
-        # relative angle from v1 to v2
-        relative_angle = angle2 - angle1
+        area = abs(np.cross(p1 - p0, p2 - p0)) / 2
 
-        # wrap angle to [-pi, pi]
-        relative_angle = (relative_angle + np.pi) % (2 * np.pi) - np.pi
+        if area == 0:
+            curvatures.append(0)
+            continue
 
-        angles.append(relative_angle)
+        radius = (a * b * c) / (4 * area)
+        curvatures.append(1 / radius)
 
-    return angles
+    return np.array(curvatures)
