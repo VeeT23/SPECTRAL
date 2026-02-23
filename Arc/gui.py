@@ -9,11 +9,33 @@ def make_menu(self):
     self.view_menu = self.menu_bar.addMenu("View")
 
     # ---------------- View Line Path Toggle ----------------
-    self.view_path_action = QAction("View Line Path", self.win)
-    self.view_path_action.setCheckable(True)
-    self.view_path_action.setChecked(False)
-    self.view_path_action.triggered.connect(self.toggle_path_visibility)
-    self.view_menu.addAction(self.view_path_action)
+    self.view_path_menu = self.view_menu.addMenu("View Path")
+
+    self.path_group = QActionGroup(self.win)
+    self.path_group.setExclusive(True)
+
+    path_names = ["None", "Curvature", "Solid", "Arc Length", "Length From Start"]
+
+
+    for i, name in enumerate(path_names):
+        action = QAction(name, self.win)
+        action.setCheckable(True)
+        if i == 0:
+            action.setChecked(True)
+
+        # When triggered, change segment mode
+        action.triggered.connect(lambda checked, mode=name: self.set_segment_mode(mode))
+
+        self.path_group.addAction(action)
+        self.view_path_menu.addAction(action)
+
+    self.view_path_menu.addSeparator()
+    self.boundary_toggle_action = QAction("Show Boundaries", self.win)
+    self.boundary_toggle_action.setCheckable(True)
+    self.boundary_toggle_action.setChecked(False)
+    self.boundary_toggle_action.toggled.connect(self.toggle_boundaries_visibility)
+    self.view_path_menu.addAction(self.boundary_toggle_action)
+
 
     # ---------------- View Map Submenu ----------------
     self.view_map_menu = self.view_menu.addMenu("View Map")
@@ -43,7 +65,6 @@ def make_menu(self):
 
         self.map_group.addAction(action)
         self.view_map_menu.addAction(action)
-
 
 def make_central_widgets(self):
     # Container widget
@@ -84,6 +105,8 @@ def make_central_widgets(self):
     self.img_item = pg.ImageItem()
     self.view.addItem(self.img_item)
 
+    control_panel = QtWidgets.QHBoxLayout()
+
     # =============== Stage interface ===============
 
     stage_interface = QtWidgets.QVBoxLayout()
@@ -105,23 +128,47 @@ def make_central_widgets(self):
 
     # ---------------- Path controls ----------------
 
-    slider_box = QtWidgets.QHBoxLayout()
-    self.path_epsilon_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
-    self.path_epsilon_slider.setMinimum(0)
-    self.path_epsilon_slider.setMaximum(100)
-    self.path_epsilon_slider.valueChanged.connect(self.set_path_epsilon)
+    spin_box_layout = QtWidgets.QHBoxLayout()
 
-    self.path_epsilon_label = QtWidgets.QLabel("1.0")
+    self.path_epsilon_spin = QtWidgets.QDoubleSpinBox()
+    self.path_epsilon_spin.setRange(0.0, 100.0)
+    self.path_epsilon_spin.setDecimals(3)
+    self.path_epsilon_spin.setSingleStep(0.1)
+    self.path_epsilon_spin.setValue(1.0)
 
-    slider_box.addWidget(QtWidgets.QLabel("Path Epsilon:"))
-    slider_box.addWidget(self.path_epsilon_slider)
-    slider_box.addWidget(self.path_epsilon_label, alignment=QtCore.Qt.AlignmentFlag.AlignRight)
-    stage_interface.addLayout(slider_box)
+    self.path_epsilon_spin.editingFinished.connect(self.commit_path_epsilon)
 
+    spin_box_layout.addWidget(QtWidgets.QLabel("Path Epsilon:"))
+    spin_box_layout.addWidget(self.path_epsilon_spin)
 
+    stage_interface.addLayout(spin_box_layout)
+    
+    control_panel.addLayout(stage_interface)
 
+    # ============== Simulation Interface ==============
 
-    layout.addLayout(stage_interface)
+    simulation_interface = QtWidgets.QVBoxLayout()
+
+    # Horizontal row for tick and toggle buttons
+    sim_btn_row = QtWidgets.QHBoxLayout()
+
+    tick_sim_btn = QtWidgets.QPushButton()
+    tick_sim_btn.setText("Tick Sim")
+    tick_sim_btn.pressed.connect(self.tick_simulation_loop)
+
+    self.toggle_sim_btn = QtWidgets.QPushButton()
+    self.toggle_sim_btn.setText("Start Loop")
+    self.toggle_sim_btn.setCheckable(True)
+    self.toggle_sim_btn.pressed.connect(self.toggle_simulation)
+
+    sim_btn_row.addWidget(tick_sim_btn)
+    sim_btn_row.addWidget(self.toggle_sim_btn)
+
+    simulation_interface.addLayout(sim_btn_row)
+
+    control_panel.addLayout(simulation_interface)
+
+    layout.addLayout(control_panel)
 
     # Set as central widget
     self.win.setCentralWidget(container)
