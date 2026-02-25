@@ -71,6 +71,13 @@ def compute_segment_lengths(path):
 
     return np.array(lengths)
 
+def get_total_lengths(polyline):
+    total = 0
+    lengths = compute_segment_lengths(polyline)
+    for length in lengths:
+        total += length
+    return total
+
 def compute_curvature(path):
     path = np.asarray(path, dtype=float)
 

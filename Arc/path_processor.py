@@ -41,7 +41,7 @@ def process_image(self, path):
     self.stages.append(gray)
 
     # Threshold
-    _, thresh = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
+    _, thresh = cv2.threshold(gray, 80, 255, cv2.THRESH_BINARY)
     self.stages.append(thresh)
 
     # Invert for skeleton (black track becomes foreground)

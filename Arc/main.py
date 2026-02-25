@@ -5,7 +5,7 @@ import pyqtgraph as pg
 import random
 from PyQt6 import QtWidgets, QtCore
 from gui import make_menu, make_central_widgets
-from path_finder import generate_path_from_skeleton, compute_segment_lengths, compute_curvature, offset_polyline, remove_local_pinches, compute_total_segment_angles, vertex_distances,interpolate_between_polylines
+from path_finder import *
 from path_processor import process_image
 
 
@@ -77,8 +77,8 @@ class Arc:
             if scene is not None and scene == self.view.scene():
                 self.view.removeItem(self.path_curve)
 
-        if hasattr(self, "segment_items"):
-            for item in self.segment_items:
+        if hasattr(self, "path_segment_items"):
+            for item in self.path_segment_items:
                 try:
                     scene = item.scene()
                 except Exception:
@@ -111,6 +111,23 @@ class Arc:
             if scene is not None and scene == self.view.scene():
                 self.view.removeItem(self.boundary_connectors)
 
+    def clear_race_line_segments(self):
+        if hasattr(self, "race_curve"):
+            try:
+                scene = self.race_curve.scene()
+            except Exception:
+                scene = None
+            if scene is not None and scene == self.view.scene():
+                self.view.removeItem(self.race_curve)
+        if hasattr(self, "race_line_segment_items"):
+            for item in self.race_line_segment_items:
+                try:
+                    scene = item.scene()
+                except Exception:
+                    scene = None
+                if scene is not None and scene == self.view.scene():
+                    self.view.removeItem(item)
+
     def update_display(self):
         if self.stage_index == 0:
             self.img_item.setImage(np.zeros((10, 10), dtype=np.uint8))
@@ -125,10 +142,11 @@ class Arc:
 
     def set_segment_mode(self, mode):
         print(f"Setting segment mode to: {mode}")
-        self.segment_mode = mode
+        
         if mode == "None":
             self.toggle_path_visibility(False)
         else:
+            self.segment_mode = mode
             self.draw_path_segments()
             self.toggle_path_visibility(True)
            
@@ -141,9 +159,9 @@ class Arc:
         # Remove previous items
         self.clear_path_segments()
 
-        self.segment_items = []
+        self.path_segment_items = []
 
-        # ---- SOLID MODE (FAST PATH) ----
+        # ---- SOLID MODE ----
         if self.segment_mode == "Solid":
             self.path_curve = pg.PlotDataItem(
                 path_x,
@@ -196,15 +214,15 @@ class Arc:
                 symbol=None
             )
             self.view.addItem(seg)
-            self.segment_items.append(seg)
+            self.path_segment_items.append(seg)
 
     def toggle_path_visibility(self, checked):
         print(f"Toggle path visibility: {checked}")
         
         if hasattr(self, "path_curve"):
             self.path_curve.setVisible(checked)
-        if hasattr(self, "segment_items"):
-            for item in self.segment_items:
+        if hasattr(self, "path_segment_items"):
+            for item in self.path_segment_items:
                 item.setVisible(checked)
 
     def toggle_boundaries_visibility(self, checked):
@@ -341,29 +359,75 @@ class Arc:
                 pass
 
     def draw_race_line(self):
-        
-        if hasattr(self, "race_line"):
-            try:
-                scene = self.race_line.scene()
-            except Exception:
-                scene = None
-            if scene is not None and scene == self.view.scene():
-                self.view.removeItem(self.race_line)
+        if not hasattr(self, "race_line_polyline") or self.race_line_polyline is None:
+            return
+        self.clear_race_line_segments()
 
+
+        line_y = self.race_line_polyline[:, 1]
+        line_x = self.race_line_polyline[:, 0]
        
 
-        self.race_line = pg.PlotDataItem(
-            [p[0] for p in self.race_line_polyline],
-            [p[1] for p in self.race_line_polyline],
-            pen=pg.mkPen('g', width=3),
-            connect="all"
-        )
+        self.race_line_segment_items = []
 
-        self.view.addItem(self.race_line)
+        # ---- SOLID MODE ----
+        if self.segment_mode == "Solid":
+            self.race_curve = pg.PlotDataItem(
+                line_x,
+                line_y,
+                pen=pg.mkPen('g', width=3),
+                connect="all",
+                symbol=None
+            )
+            self.view.addItem(self.race_curve)
+            return
+
+        # ---- GRADIENT MODES ----
+        if self.segment_mode == "Curvature":
+            values = compute_curvature(self.race_line_polyline)
+            # append last segment value same as previous to match segment count
+            if len(values) > 0:
+                values = np.append(values, values[-1])
+            else:
+                values = np.zeros(len(line_x) - 1)
+            values = values.max() - values  # invert curvature so high curvature = high value
+        else:
+            lengths = compute_segment_lengths(self.race_line_polyline)
+            if self.segment_mode == "Length From Start":
+                values = np.cumsum(lengths)
+            elif self.segment_mode == "Arc Length":
+                values = lengths
+            else:
+                values = lengths  # fallback
+
+        # Normalize values
+        vmin = values.min()
+        vmax = values.max()
+        if vmax - vmin < 1e-8:
+            vmax = vmin + 1e-8
+
+        cmap = matplotlib.colormaps["plasma"]
+
+        for i in range(len(line_x) - 1):
+            norm = (values[i] - vmin) / (vmax - vmin)
+            norm = np.clip(norm, 0, 1)
+
+            rgba = cmap(norm)  # returns (r,g,b,a)
+            color = pg.mkColor(int(rgba[0]*255), int(rgba[1]*255), int(rgba[2]*255))
+
+            seg = pg.PlotDataItem(
+                [line_x[i], line_x[i+1]],
+                [line_y[i], line_y[i+1]],
+                pen=pg.mkPen(color, width=3),
+                connect="all",
+                symbol=None
+            )
+            self.view.addItem(seg)
+            self.race_line_segment_items.append(seg)
 
     def run(self):
         sys.exit(self.app.exec())
 
 if __name__ == "__main__":
-    arc = Arc("../pathfinder_2026.png")
+    arc = Arc("../test.png")
     arc.run()
