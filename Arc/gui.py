@@ -51,7 +51,8 @@ def make_menu(self):
         "Grayscale",
         "Threshold",
         "Skeleton",
-        "Filtered Skeleton"
+        "Filtered Skeleton",
+        "Pruned Skeleton"
     ]
 
     for i, name in enumerate(stage_names):

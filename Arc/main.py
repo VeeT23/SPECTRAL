@@ -429,5 +429,5 @@ class Arc:
         sys.exit(self.app.exec())
 
 if __name__ == "__main__":
-    arc = Arc("../test.png")
+    arc = Arc("../pathfinder_2026.png")
     arc.run()

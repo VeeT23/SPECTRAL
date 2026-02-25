@@ -19,7 +19,7 @@ def generate_path_from_skeleton(skeleton, epsilon=1.0):
         raise ValueError("No skeleton pixels found")
 
     # ---- Find start (left-most pixel) ----
-    start = min(pixels, key=lambda p: p[0])
+    start = min(pixels, key=lambda p: (p[0], p[1]))
 
     # 8-connectivity
     neighbors8 = [
