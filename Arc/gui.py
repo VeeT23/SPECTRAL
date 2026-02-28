@@ -173,3 +173,30 @@ def make_central_widgets(self):
 
     # Set as central widget
     self.win.setCentralWidget(container)
+
+def safe_remove_item(self, item):
+    if item is None:
+        return
+
+    try:
+        scene = item.scene()
+    except Exception:
+        return
+
+    if scene is not None and scene == self.view.scene():
+        self.view.removeItem(item)
+
+def clear_graphics_attrs(self, *attr_names):
+    for name in attr_names:
+        if not hasattr(self, name):
+            continue
+
+        obj = getattr(self, name)
+
+        if isinstance(obj, (list, tuple)):
+            for item in obj:
+                safe_remove_item(self,item)
+        else:
+            safe_remove_item(self, obj)
+
+        setattr(self, name, None)  # prevent stale references

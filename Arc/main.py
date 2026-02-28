@@ -4,7 +4,7 @@ import numpy as np
 import pyqtgraph as pg
 import random
 from PyQt6 import QtWidgets, QtCore
-from gui import make_menu, make_central_widgets
+from gui import *
 from path_finder import *
 from path_processor import process_image
 
@@ -43,7 +43,6 @@ class Arc:
         self.toggle_boundaries_visibility(self.boundary_toggle_action.isChecked())
         self.win.show()
 
-    # ---------------- UI ----------------
     def set_stage(self, index):
         print(f"Setting stage to index: {index}")
         self.stage_index = index
@@ -67,66 +66,6 @@ class Arc:
             self.segment_mode = "Solid"
         self.draw_path_segments()
         self.toggle_path_visibility(True)
-    
-    def clear_path_segments(self):
-        if hasattr(self, "path_curve"):
-            try:
-                scene = self.path_curve.scene()
-            except Exception:
-                scene = None
-            if scene is not None and scene == self.view.scene():
-                self.view.removeItem(self.path_curve)
-
-        if hasattr(self, "path_segment_items"):
-            for item in self.path_segment_items:
-                try:
-                    scene = item.scene()
-                except Exception:
-                    scene = None
-                if scene is not None and scene == self.view.scene():
-                    self.view.removeItem(item)
-
-    def clear_path_boundaries(self):
-        if hasattr(self, "left_boundary"):
-            try:
-                scene = self.left_boundary.scene()
-            except Exception:
-                scene = None
-            if scene is not None and scene == self.view.scene():
-                self.view.removeItem(self.left_boundary)
-
-        if hasattr(self, "right_boundary"):
-            try:
-                scene = self.right_boundary.scene()
-            except Exception:
-                scene = None
-            if scene is not None and scene == self.view.scene():
-                self.view.removeItem(self.right_boundary)
-        
-        if hasattr(self, "boundary_connectors"):
-            try:
-                scene = self.boundary_connectors.scene()
-            except Exception:
-                scene = None
-            if scene is not None and scene == self.view.scene():
-                self.view.removeItem(self.boundary_connectors)
-
-    def clear_race_line_segments(self):
-        if hasattr(self, "race_curve"):
-            try:
-                scene = self.race_curve.scene()
-            except Exception:
-                scene = None
-            if scene is not None and scene == self.view.scene():
-                self.view.removeItem(self.race_curve)
-        if hasattr(self, "race_line_segment_items"):
-            for item in self.race_line_segment_items:
-                try:
-                    scene = item.scene()
-                except Exception:
-                    scene = None
-                if scene is not None and scene == self.view.scene():
-                    self.view.removeItem(item)
 
     def update_display(self):
         if self.stage_index == 0:
@@ -157,7 +96,11 @@ class Arc:
         path_x = self.path[:, 0]
 
         # Remove previous items
-        self.clear_path_segments()
+        clear_graphics_attrs(
+            self,
+            "path_curve",
+            "path_segment_items"
+        )
 
         self.path_segment_items = []
 
@@ -219,7 +162,7 @@ class Arc:
     def toggle_path_visibility(self, checked):
         print(f"Toggle path visibility: {checked}")
         
-        if hasattr(self, "path_curve"):
+        if hasattr(self, "path_curve") and self.path_curve != None:
             self.path_curve.setVisible(checked)
         if hasattr(self, "path_segment_items"):
             for item in self.path_segment_items:
@@ -240,9 +183,14 @@ class Arc:
         if not hasattr(self, "path") or self.path is None:
             return
 
-        self.clear_path_boundaries()
+        clear_graphics_attrs(
+            self,
+            "left_boundary",
+            "right_boundary",
+            "boundary_connectors",
+        )
 
-        left, right = offset_polyline(self.path, offset=20.0)
+        left, right = offset_polyline(self.path, offset=15.0)
 
         left = remove_local_pinches(left, neighbor_window=8)
         right = remove_local_pinches(right, neighbor_window=8)
