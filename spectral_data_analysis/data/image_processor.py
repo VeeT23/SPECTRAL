@@ -1,9 +1,66 @@
 import cv2
 import numpy as np
 from skimage.morphology import skeletonize
-from path_finder import generate_path_from_skeleton
 from collections import deque
+from geometry.polyline import Polyline
 # ---------------- Image Pipeline ----------------
+
+
+neighbors8 = [
+(-1, -1), (-1, 0), (-1, 1),
+( 0, -1),           ( 0, 1),
+( 1, -1), ( 1, 0), ( 1, 1),
+]
+
+def generate_path_from_skeleton(skeleton, epsilon=1.0):
+    """
+    Generates ordered polyline path from open-loop skeleton.
+    Start = left-most white pixel.
+    Returns Nx2 numpy array of (x, y) coordinates.
+
+    epsilon: maximum distance in pixels from original to simplified path.
+             Larger epsilon → fewer points on straight segments.
+    """
+
+    # ---- Extract skeleton pixel coordinates ----
+    ys, xs = np.where(skeleton > 0)
+    pixels = set(zip(xs, ys))
+
+    if not pixels:
+        raise ValueError("No skeleton pixels found")
+
+    # ---- Find start (left-most pixel) ----
+    start = min(pixels, key=lambda p: (p[0], p[1]))
+
+
+    # ---- Trace ordered path ----
+    path = [start]
+    visited = set([start])
+    current = start
+
+    while True:
+        found_next = False
+        for dx, dy in neighbors8:
+            nxt = (current[0] + dx, current[1] + dy)
+            if nxt in pixels and nxt not in visited:
+                path.append(nxt)
+                visited.add(nxt)
+                current = nxt
+                found_next = True
+                break
+        if not found_next:
+            break  # reached end
+
+    ordered = np.array(path, dtype=float)
+
+    # Polyline requires at least two points.
+    if len(ordered) < 2:
+        return ordered
+
+    polyline = Polyline([tuple(p) for p in ordered])
+    simplified = polyline.simplify(epsilon=epsilon)
+
+    return np.array(simplified.get_points(), dtype=float)
 
 def prune_to_longest_path(skeleton):
     """
@@ -17,12 +74,6 @@ def prune_to_longest_path(skeleton):
     if not pixels:
         return skeleton
 
-    # 8-connectivity
-    neighbors8 = [
-        (-1, -1), (-1, 0), (-1, 1),
-        ( 0, -1),           ( 0, 1),
-        ( 1, -1), ( 1, 0), ( 1, 1),
-    ]
 
     # ---- Build adjacency ----
     adjacency = {p: [] for p in pixels}
@@ -103,7 +154,7 @@ def keep_largest_component(skeleton):
 
     return filtered
 
-def process_image(self, path):
+def process_image(path):
     original = cv2.imread(path)
     if original is None:
         raise FileNotFoundError(path)
@@ -146,19 +197,16 @@ def process_image(self, path):
 
     print(f"Best rotation: {best_rotation}°  (score={best_score})")
 
-    # ---- Store best pipeline ----
-    self.stages.clear()
-
     original_best, gray_best, thresh_best, skeleton_best, largest_best, filtered_best = best_result
 
     original_rgb = cv2.cvtColor(original_best, cv2.COLOR_BGR2RGB)
-    self.stages.append(original_rgb)
-    self.stages.append(gray_best)
-    self.stages.append(thresh_best)
-    self.stages.append(skeleton_best)
-    self.stages.append(largest_best)
-    self.filtered = filtered_best
-    self.stages.append(self.filtered)
+    stages = [
+        original_rgb,
+        gray_best,
+        thresh_best,
+        skeleton_best,
+        largest_best,
+        filtered_best,
+    ]
 
-    self.stage_slider.setMaximum(len(self.stages))
-    self.stage_slider.setValue(1)
+    return stages, filtered_best
