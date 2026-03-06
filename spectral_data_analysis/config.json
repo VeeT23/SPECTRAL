@@ -1,3 +1,4 @@
 {
-    "course_filepath":"pathfinder_2026.png"
+    "course_filepath":"pathfinder_2026.png",
+    "course_size_meters": [2.54, 2.54]
 }

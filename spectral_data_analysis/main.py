@@ -11,7 +11,7 @@ class Main(QtCore.QObject):
 
         self.config = Config()
 
-        self.window = MainWindow()
+        self.window = MainWindow(self.config)
 
 def main():
     app = QtWidgets.QApplication(sys.argv)
