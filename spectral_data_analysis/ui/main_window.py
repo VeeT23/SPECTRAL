@@ -12,7 +12,7 @@ class MainWindow():
         self.win.resize(900, 700)
         
         # Create and set menubar
-        self.menu_bar = MenuBar(self.win)
+        self.menu_bar = MenuBar(self.win, main_window_instance=self)
         self.win.setMenuBar(self.menu_bar)
         
         # Create central widget with GraphicsLayoutWidget to hold the PlotItem
@@ -35,14 +35,23 @@ class MainWindow():
             image_path = config.data.get('course_filepath')
             if image_path:
                 # Process the image
-                stages, filtered = process_image(image_path)
+                stages = process_image(image_path)
                 
-                # Add all processing stages to the widget
-                for stage in stages:
-                    self.track_map.add_image(stage, config.data.get('course_size_meters'))
-                    
-                # Display the first image (original)
-                self.track_map.select_image(0)
+                # Convert list of [name, image] to dict for backward compatibility
+                stages_dict = {name: image for name, image in stages}
+                stage_names = [name for name, _ in stages]
+                
+                self.track_map.set_images(stages_dict)
+                self.track_map.set_path_from_skeleton(stages_dict["Final"])
+                self.track_map.actual_size_meters = config.data.get('course_size_meters')
+
+                self.menu_bar.create_stages_menu(["None"] + stage_names)
+                
         except Exception as e:
+            import traceback
             print(f"Error loading image: {e}")
+            traceback.print_exc()
     
+    def select_stage(self, stage_name):
+        """Select a specific stage to display on the track map."""
+        self.track_map.select_image(stage_name)

@@ -1,93 +1,76 @@
 
-
 import pyqtgraph as pg
 import numpy as np
-
+from geometry.polyline import Polyline
+from ui.gui.color_line import ColorLine
+from data.image_processor import generate_path_from_skeleton
 
 class TrackMapWidget(pg.PlotItem):
     def __init__(self, parent=None):
         super().__init__(parent)
+
+        # Ensure image arrays are interpreted in standard numpy row-major order.
+        pg.setConfigOption('imageAxisOrder', 'row-major')
         
         # Storage for multiple images
-        self.images = []
-        self.current_index = -1
+        self.images = {}
+        self.current_image_name = None
         
+        self.actual_size_meters = None  # To be set when loading image with known scale
+
         # ImageItem for displaying the current image
-        self.image_item = pg.ImageItem()
+        self.image_item = pg.ImageItem(axisOrder='row-major')
+        
         self.addItem(self.image_item)
         
-        # Real world dimensions (width, height in real units)
-        self.real_world_size = None
-        
+        # ColorLine for path visualization
+        self.color_line = None
+       
         # Configure plot
         self.setAspectLocked(True)
-        self.invertY(True)  # Typical image coordinate system
+        self.invertY(True)  # Invert Y-axis to match image coordinates
+
+        # Show X coordinates on the top axis instead of bottom.
+        self.showAxis('top')
+        self.hideAxis('bottom')
         
-    def add_image(self, image_data, real_world_size=None):
+    def set_images(self, images_dict):
         """
-        Add an image to the storage array.
+        Set the entire images dictionary.
         
         Args:
-            image_data: numpy array containing image data
-            real_world_size: tuple (width, height) in real world units
-        
-        Returns:
-            Index of the added image
+            images_dict: Dictionary with format {"image_name": image_array, ...}
         """
-        self.images.append({
-            'data': np.array(image_data),
-            'real_world_size': real_world_size
-        })
-        
-        # If this is the first image, display it
-        if len(self.images) == 1:
-            self.select_image(0)
-            
-        return len(self.images) - 1
+        self.images = images_dict
+        self.current_image_name = None
+        self.image_item.clear()
     
-    def select_image(self, index):
+    def select_image(self, image_name):
         """
-        Select and display a specific image from the array.
+        Select and display a specific image from the dictionary.
         
         Args:
-            index: Index of the image to display
+            image_name: Name/key of the image to display
         """
-        if 0 <= index < len(self.images):
-            self.current_index = index
-            image_info = self.images[index]
+        if image_name in self.images:
+            print(f"Selecting image: {image_name}")
+
+            self.current_image_name = image_name
+            image_data = self.images[image_name]
             
-            # Set the image data
-            self.image_item.setImage(image_info['data'])
-            
-            # Apply real world scaling if available
-            if image_info['real_world_size'] is not None:
-                self.real_world_size = image_info['real_world_size']
-                self._apply_real_world_scaling()
-            else:
-                self.real_world_size = None
+            # Ensure image data is in proper format for pyqtgraph
+            # For grayscale (2D) or color (3D) images, setImage handles both
+            try:
+                self.image_item.setImage(image_data, axisOrder='row-major', autoLevels=True)
+            except Exception as e:
+                print(f"Warning: Error setting image: {e}")
+                print(f"Image shape: {image_data.shape}, dtype: {image_data.dtype}")
+                return
+        elif image_name == "None":
+            print("Clearing image display")
+            self.current_image_name = None
+            self.image_item.clear()
                 
-    def _apply_real_world_scaling(self):
-        """
-        Apply real world scaling to the image display.
-        """
-        if self.real_world_size is not None and self.current_index >= 0:
-            image_data = self.images[self.current_index]['data']
-            width, height = self.real_world_size
-            
-            # Calculate scale factors
-            img_height, img_width = image_data.shape[:2]
-            scale_x = width / img_width
-            scale_y = height / img_height
-            
-            # Create transform for scaling
-            tr = pg.QtGui.QTransform()
-            tr.scale(scale_x, scale_y)
-            
-            self.image_item.setTransform(tr)
-            
-            # Update axis labels
-            self.setLabel('bottom', 'X', units='m')
-            self.setLabel('left', 'Y', units='m')
     
     def get_current_image(self):
         """
@@ -96,15 +79,57 @@ class TrackMapWidget(pg.PlotItem):
         Returns:
             numpy array of current image or None
         """
-        if self.current_index >= 0:
-            return self.images[self.current_index]['data']
+        if self.current_image_name is not None and self.current_image_name in self.images:
+            return self.images[self.current_image_name]
         return None
     
     def clear_images(self):
         """
         Clear all stored images.
         """
-        self.images = []
-        self.current_index = -1
+        self.images = {}
+        self.current_image_name = None
         self.image_item.clear()
-        self.real_world_size = None
+    
+    def set_path_from_skeleton(self, skeleton, position=None, epsilon=1.0, color_mode='solid'):
+        """
+        Create and draw a colored polyline path from a skeleton.
+        
+        Uses generate_path_from_skeleton to trace the path in pixel coordinates,
+        then creates and draws a ColorLine on this widget.
+        
+        Args:
+            skeleton: Binary image where non-zero pixels represent the skeleton
+            position: Optional (x, y) tuple to seed the path generation. 
+                     If None, starts from the left-most pixel.
+            epsilon: Maximum distance in pixels for path simplification.
+                    Larger epsilon → fewer points on straight segments.
+            color_mode: Color mode for the line ['solid', 'length', 'curvature']
+        
+        Returns:
+            The created ColorLine object, or None if path generation fails
+        """
+        # Erase any existing color line
+        if self.color_line is not None:
+            self.color_line.erase()
+        
+        try:
+            # Generate path from skeleton (in pixel coordinates)
+            path_points = generate_path_from_skeleton(skeleton, position=position, epsilon=epsilon)
+            
+            # Convert to list of tuples for Polyline
+            points = [tuple(p) for p in path_points]
+            
+            # Create Polyline in pixel coordinates
+            polyline = Polyline(points)
+            
+            # Create and draw ColorLine
+            self.color_line = ColorLine(polyline)
+            self.color_line.set_color_mode(color_mode)
+            self.color_line.draw(self)
+            
+            return self.color_line
+        
+        except ValueError as e:
+            print(f"Error creating path from skeleton: {e}")
+            return None

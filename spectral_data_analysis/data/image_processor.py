@@ -12,12 +12,13 @@ neighbors8 = [
 ( 1, -1), ( 1, 0), ( 1, 1),
 ]
 
-def generate_path_from_skeleton(skeleton, epsilon=1.0):
+def generate_path_from_skeleton(skeleton, position=None, epsilon=1.0):
     """
     Generates ordered polyline path from open-loop skeleton.
-    Start = left-most white pixel.
+    Start = nearest pixel to position if provided, otherwise left-most white pixel.
     Returns Nx2 numpy array of (x, y) coordinates.
 
+    position: (x, y) tuple to seed path from nearest pixel, or None for left-most.
     epsilon: maximum distance in pixels from original to simplified path.
              Larger epsilon → fewer points on straight segments.
     """
@@ -29,8 +30,11 @@ def generate_path_from_skeleton(skeleton, epsilon=1.0):
     if not pixels:
         raise ValueError("No skeleton pixels found")
 
-    # ---- Find start (left-most pixel) ----
-    start = min(pixels, key=lambda p: (p[0], p[1]))
+    # ---- Find start (nearest to position if provided, otherwise left-most pixel) ----
+    if position is not None:
+        start = min(pixels, key=lambda p: (p[0] - position[0])**2 + (p[1] - position[1])**2)
+    else:
+        start = min(pixels, key=lambda p: (p[0], p[1]))
 
 
     # ---- Trace ordered path ----
@@ -159,54 +163,24 @@ def process_image(path):
     if original is None:
         raise FileNotFoundError(path)
 
-    rotations = {
-        0: None,
-        90: cv2.ROTATE_90_CLOCKWISE,
-        180: cv2.ROTATE_180,
-        270: cv2.ROTATE_90_COUNTERCLOCKWISE,
-    }
+    gray = cv2.cvtColor(original, cv2.COLOR_BGR2GRAY)
+    _, thresh = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
 
-    best_score = -1
-    best_result = None
-    best_rotation = 0
+    binary = thresh == 0
+    skeleton = skeletonize(binary)
+    skeleton = (skeleton * 255).astype(np.uint8)
 
-    # ---- Try all rotations ----
-    for angle, rot_flag in rotations.items():
+    filtered = keep_largest_component(skeleton)
+    pruned = prune_to_longest_path(filtered)
 
-        if rot_flag is not None:
-            rotated = cv2.rotate(original, rot_flag)
-        else:
-            rotated = original.copy()
-
-        gray = cv2.cvtColor(rotated, cv2.COLOR_BGR2GRAY)
-        _, thresh = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
-
-        binary = thresh == 0
-        skeleton = skeletonize(binary)
-        skeleton = (skeleton * 255).astype(np.uint8)
-
-        largest = keep_largest_component(skeleton)
-        filtered = prune_to_longest_path(largest)
-
-        score = len(generate_path_from_skeleton(filtered))
-        print(f"Rotation {angle}: score={score}")
-        if score > best_score:
-            best_score = score
-            best_result = (rotated, gray, thresh, skeleton, largest, filtered)
-            best_rotation = angle
-
-    print(f"Best rotation: {best_rotation}°  (score={best_score})")
-
-    original_best, gray_best, thresh_best, skeleton_best, largest_best, filtered_best = best_result
-
-    original_rgb = cv2.cvtColor(original_best, cv2.COLOR_BGR2RGB)
+    original_rgb = cv2.cvtColor(original, cv2.COLOR_BGR2RGB)
     stages = [
-        original_rgb,
-        gray_best,
-        thresh_best,
-        skeleton_best,
-        largest_best,
-        filtered_best,
+        ["Original", original_rgb],
+        ["Grayscaled", gray],
+        ["Thresh", thresh],
+        ["Skeleton", skeleton],
+        ["Filtered", filtered],
+        ["Final", pruned],
     ]
 
-    return stages, filtered_best
+    return stages

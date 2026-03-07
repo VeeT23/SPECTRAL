@@ -81,6 +81,62 @@ class Polyline:
         """
         return self.points
     
+    def scale(self, factor: float) -> 'Polyline':
+        """
+        Scale the polyline by a given factor.
+        
+        Args:
+            factor: Scaling factor to apply to all coordinates.
+                   Values > 1 enlarge, values < 1 shrink, values < 0 flip.
+        
+        Returns:
+            A new scaled Polyline object.
+        """
+        scaled_points = [tuple(coord * factor for coord in point) for point in self.points]
+        return Polyline(scaled_points)
+    
+    def get_segment_curvature(self) -> List[float]:
+        """
+        Get the curvature at each interior vertex (angle change between consecutive segments).
+        
+        Returns:
+            A list of curvature values (in radians). The list has length = len(points) - 2.
+            Each value represents the turning angle at that vertex.
+            Returns empty list if fewer than 3 points.
+        """
+        if len(self.points) < 3:
+            return []
+        
+        curvatures = []
+        for i in range(1, len(self.points) - 1):
+            p0 = np.array(self.points[i - 1][:2])
+            p1 = np.array(self.points[i][:2])
+            p2 = np.array(self.points[i + 1][:2])
+            
+            # Vectors for the two segments
+            v1 = p1 - p0
+            v2 = p2 - p1
+            
+            # Normalize vectors
+            len_v1 = np.linalg.norm(v1)
+            len_v2 = np.linalg.norm(v2)
+            
+            if len_v1 > 0 and len_v2 > 0:
+                v1_norm = v1 / len_v1
+                v2_norm = v2 / len_v2
+                
+                # Calculate angle using dot product and cross product
+                dot_product = np.dot(v1_norm, v2_norm)
+                cross_product = v1_norm[0] * v2_norm[1] - v1_norm[1] * v2_norm[0]
+                
+                # Angle in radians
+                angle = math.atan2(cross_product, dot_product)
+                curvatures.append(angle)
+            else:
+                curvatures.append(0.0)
+        
+        return curvatures
+    
     def __repr__(self) -> str:
         """String representation of the Polyline."""
         return f"Polyline(points={self.points})"
