@@ -21,6 +21,7 @@ class MainWindow():
         
         # Create and add TrackMapWidget
         self.track_map = TrackMapWidget()
+        self.track_map.actual_size_meters = config.data.get('course_size_meters') if config is not None else None
         self.graphics_widget.addItem(self.track_map)
         
         # Load and process image if config is provided
@@ -55,3 +56,19 @@ class MainWindow():
     def select_stage(self, stage_name):
         """Select a specific stage to display on the track map."""
         self.track_map.select_image(stage_name)
+    
+    def set_path_color_mode(self, mode):
+        """Set the color mode for the path visualization."""
+        print(f"Setting path color mode to: {mode}")
+        if self.track_map.path_line is not None:
+            self.track_map.path_line.set_color_mode(mode)
+    
+    def set_path_visibility(self, visible):
+        """Show or hide the path visualization."""
+
+        print(f"Setting path visibility to: {visible}")
+        if self.track_map.path_line is not None:
+            if visible:
+                self.track_map.path_line.show()
+            else:
+                self.track_map.path_line.hide()

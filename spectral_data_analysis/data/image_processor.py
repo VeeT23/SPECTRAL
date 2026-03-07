@@ -16,7 +16,7 @@ def generate_path_from_skeleton(skeleton, position=None, epsilon=1.0):
     """
     Generates ordered polyline path from open-loop skeleton.
     Start = nearest pixel to position if provided, otherwise left-most white pixel.
-    Returns Nx2 numpy array of (x, y) coordinates.
+    Returns a Polyline object representing the simplified path.
 
     position: (x, y) tuple to seed path from nearest pixel, or None for left-most.
     epsilon: maximum distance in pixels from original to simplified path.
@@ -59,12 +59,12 @@ def generate_path_from_skeleton(skeleton, position=None, epsilon=1.0):
 
     # Polyline requires at least two points.
     if len(ordered) < 2:
-        return ordered
+        raise ValueError("Path has fewer than 2 points")
 
     polyline = Polyline([tuple(p) for p in ordered])
     simplified = polyline.simplify(epsilon=epsilon)
 
-    return np.array(simplified.get_points(), dtype=float)
+    return simplified
 
 def prune_to_longest_path(skeleton):
     """

@@ -17,6 +17,7 @@ class TrackMapWidget(pg.PlotItem):
         self.current_image_name = None
         
         self.actual_size_meters = None  # To be set when loading image with known scale
+        self.prescaled_size_pixels = None  # Original pixel dimensions before scaling to meters
 
         # ImageItem for displaying the current image
         self.image_item = pg.ImageItem(axisOrder='row-major')
@@ -24,7 +25,7 @@ class TrackMapWidget(pg.PlotItem):
         self.addItem(self.image_item)
         
         # ColorLine for path visualization
-        self.color_line = None
+        self.path_line = None
        
         # Configure plot
         self.setAspectLocked(True)
@@ -44,6 +45,13 @@ class TrackMapWidget(pg.PlotItem):
         self.images = images_dict
         self.current_image_name = None
         self.image_item.clear()
+        
+        # Extract pixel dimensions from the first available image
+        if images_dict:
+            first_image = next(iter(images_dict.values()))
+            if first_image.ndim >= 2:
+                height, width = first_image.shape[:2]
+                self.prescaled_size_pixels = (width, height)
     
     def select_image(self, image_name):
         """
@@ -62,6 +70,11 @@ class TrackMapWidget(pg.PlotItem):
             # For grayscale (2D) or color (3D) images, setImage handles both
             try:
                 self.image_item.setImage(image_data, axisOrder='row-major', autoLevels=True)
+                
+                # Apply scaling based on actual_size_meters if set
+                if self.actual_size_meters is not None:
+                    self._apply_image_scaling(image_data)
+                    
             except Exception as e:
                 print(f"Warning: Error setting image: {e}")
                 print(f"Image shape: {image_data.shape}, dtype: {image_data.dtype}")
@@ -70,8 +83,7 @@ class TrackMapWidget(pg.PlotItem):
             print("Clearing image display")
             self.current_image_name = None
             self.image_item.clear()
-                
-    
+                 
     def get_current_image(self):
         """
         Get the currently displayed image data.
@@ -82,6 +94,41 @@ class TrackMapWidget(pg.PlotItem):
         if self.current_image_name is not None and self.current_image_name in self.images:
             return self.images[self.current_image_name]
         return None
+    
+    def _apply_image_scaling(self, image_data):
+        """
+        Apply scaling to the image based on actual_size_meters.
+        
+        Calculates scale factor from image pixel dimensions and actual_size_meters,
+        then applies it to the ImageItem so axes show actual physical coordinates.
+        Stores prescaled pixel dimensions for later use in scaling paths.
+        
+        Args:
+            image_data: The image array (2D for grayscale, 3D for color)
+        """
+        if image_data.ndim >= 2:
+            # Get image dimensions (height, width in pixels)
+            height, width = image_data.shape[:2]
+            
+            # Store prescaled pixel dimensions for later use in path scaling
+            self.prescaled_size_pixels = (width, height)
+            
+            # Extract width dimension from actual_size_meters
+            # Format can be a single value or [width, height] list
+            if isinstance(self.actual_size_meters, (list, tuple)):
+                actual_width_meters = self.actual_size_meters[0]
+            else:
+                actual_width_meters = self.actual_size_meters
+            
+            # Scale factor converts pixels to meters
+            scale_factor = actual_width_meters / width
+            
+            # Apply scale to the ImageItem
+            # setScale sets the pixel size in plot coordinates
+            self.image_item.setScale(scale_factor)
+            
+            print(f"Image scaled: {width}px = {actual_width_meters}m, scale factor: {scale_factor}")
+    
     
     def clear_images(self):
         """
@@ -110,25 +157,39 @@ class TrackMapWidget(pg.PlotItem):
             The created ColorLine object, or None if path generation fails
         """
         # Erase any existing color line
-        if self.color_line is not None:
-            self.color_line.erase()
+        if self.path_line is not None:
+            self.path_line.erase()
         
         try:
             # Generate path from skeleton (in pixel coordinates)
-            path_points = generate_path_from_skeleton(skeleton, position=position, epsilon=epsilon)
+            polyline = generate_path_from_skeleton(skeleton, position=position, epsilon=epsilon)
             
-            # Convert to list of tuples for Polyline
-            points = [tuple(p) for p in path_points]
+            # Scale polyline from pixel coordinates to real-world meters if scaling is available
+            if self.actual_size_meters is not None and self.prescaled_size_pixels is not None:
+                # Extract prescaled pixel dimensions
+                prescaled_width, prescaled_height = self.prescaled_size_pixels
+                
+                # Extract meter dimensions from actual_size_meters
+                if isinstance(self.actual_size_meters, (list, tuple)):
+                    actual_width_meters = self.actual_size_meters[0]
+                    actual_height_meters = self.actual_size_meters[1] if len(self.actual_size_meters) > 1 else actual_width_meters
+                else:
+                    actual_width_meters = self.actual_size_meters
+                    actual_height_meters = self.actual_size_meters
+                
+                # Calculate scale factors from pixels to meters
+                scale_x = actual_width_meters / prescaled_width
+                scale_y = actual_height_meters / prescaled_height
+                
+                polyline = polyline.scale(scale_x, scale_y)
             
-            # Create Polyline in pixel coordinates
-            polyline = Polyline(points)
+            # Use the Polyline directly
+            self.path_line = ColorLine(polyline, parent_plot=self)
+            self.path_line.set_color_mode(color_mode)
             
-            # Create and draw ColorLine
-            self.color_line = ColorLine(polyline)
-            self.color_line.set_color_mode(color_mode)
-            self.color_line.draw(self)
+            self.path_line.hide()  # Start hidden by default
             
-            return self.color_line
+            return self.path_line
         
         except ValueError as e:
             print(f"Error creating path from skeleton: {e}")

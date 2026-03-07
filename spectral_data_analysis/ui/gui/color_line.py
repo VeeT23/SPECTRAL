@@ -3,20 +3,23 @@ import matplotlib
 import numpy as np
 import pyqtgraph as pg
 
+color_modes = ['solid', 'length', 'curvature']
+
 class ColorLine:
-    def __init__(self, polyline: Polyline):
+    def __init__(self, polyline: Polyline, parent_plot=None):
         """
         A visual representation of a PolyLine
         Args:
             polyline: The PolyLine object to visualize
+            parent_plot: Optional reference to the parent plot widget
         """
         self.polyline = polyline
-        self.set_colormap('viridis')  # Default colormap
-        self.set_color_mode('solid')  # Default color mode
-        self.visible = True  # Track visibility state
+        self.parent_plot = parent_plot  # Reference to parent plot widget
+        self.visible = False  # Track visibility state
         self.graphics_item = None  # Will hold the pyqtgraph graphics item
         self.graphics_items = []  # List to hold individual segment line items
-        self.parent_plot = None  # Reference to parent plot widget
+        self.set_colormap('viridis')  # Default colormap
+        self.set_color_mode('solid')  # Default color mode
     
     def _data_to_color(self, data: list) -> list:
         """
@@ -56,6 +59,8 @@ class ColorLine:
         Args:
             mode: A string representing the color mode [solid, length, curvature]
         """
+
+        print(f"Setting color mode to: {mode}")
         self.color_mode = mode
         num_segments = len(self.polyline) - 1
         
@@ -81,17 +86,28 @@ class ColorLine:
         
         else:
             raise ValueError(f"Unknown color mode: {mode}. Must be 'solid', 'length', or 'curvature'.")
+        
+        # Redraw if parent plot is set
+        if self.parent_plot is not None:
+            self.draw(self.parent_plot)
     
     def show(self):
         """
         Show the color line.
         
-        If a graphics item exists, makes it visible.
+        If parent plot is set, draws the line. Otherwise, makes existing graphics items visible.
         Sets the visibility flag to True.
         """
+        print("Showing color line")
         self.visible = True
-        if self.graphics_item is not None:
-            self.graphics_item.show()
+        
+        # If parent plot is set but we haven't drawn yet, draw now
+        if self.parent_plot is not None and not self.graphics_items:
+            self.draw(self.parent_plot)
+        
+        # Show existing graphics items
+        for item in self.graphics_items:
+            item.show()
     
     def hide(self):
         """
@@ -100,6 +116,7 @@ class ColorLine:
         If a graphics item exists, makes it invisible.
         Sets the visibility flag to False.
         """
+        print("Hiding color line")
         self.visible = False
         if self.graphics_item is not None:
             self.graphics_item.hide()
@@ -117,6 +134,8 @@ class ColorLine:
             plot_item: The parent pyqtgraph PlotItem (e.g., TrackMapWidget) 
                       to add the line segments to.
         """
+
+        print("Drawing color line")
         self.parent_plot = plot_item
         self.erase()  # Clear any existing graphics items
         
@@ -134,7 +153,7 @@ class ColorLine:
             
             # Create PlotCurveItem with appropriate color
             color = colors[i]
-            curve = pg.PlotCurveItem(x=x_coords, y=y_coords, pen=pg.mkPen(color, width=2))
+            curve = pg.PlotCurveItem(x=x_coords, y=y_coords, pen=pg.mkPen(color, width=4))
             
             # Add to plot and track
             plot_item.addItem(curve)

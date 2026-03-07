@@ -81,18 +81,23 @@ class Polyline:
         """
         return self.points
     
-    def scale(self, factor: float) -> 'Polyline':
+    def scale(self, factor_x: float, factor_y: float) -> 'Polyline':
         """
-        Scale the polyline by a given factor.
+        Scale the polyline by separate x and y factors.
         
         Args:
-            factor: Scaling factor to apply to all coordinates.
-                   Values > 1 enlarge, values < 1 shrink, values < 0 flip.
+            factor_x: Scaling factor to apply to x coordinates.
+                     Values > 1 enlarge, values < 1 shrink, values < 0 flip.
+            factor_y: Scaling factor to apply to y coordinates.
+                     Values > 1 enlarge, values < 1 shrink, values < 0 flip.
         
         Returns:
             A new scaled Polyline object.
         """
-        scaled_points = [tuple(coord * factor for coord in point) for point in self.points]
+        scaled_points = []
+        for point in self.points:
+            scaled_point = (point[0] * factor_x, point[1] * factor_y) + point[2:]
+            scaled_points.append(scaled_point)
         return Polyline(scaled_points)
     
     def get_segment_curvature(self) -> List[float]:
