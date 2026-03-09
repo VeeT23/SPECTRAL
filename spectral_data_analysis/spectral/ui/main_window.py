@@ -1,8 +1,10 @@
 from PyQt6 import QtWidgets
+import numpy as np
 import pyqtgraph as pg
 from spectral.io.packet import TelemetryPacket
 from spectral.ui.menu_bar import MenuBar
 from spectral.ui.gui.track_map import TrackMapWidget
+from spectral.ui.gui.ir_sensor_map import IRSensorWidget
 from spectral.data.image_processor import process_image
 
 
@@ -28,6 +30,11 @@ class MainWindow():
         self.track_map = TrackMapWidget()
         self.track_map.actual_size_meters = config.data.get('course_size_meters') if config is not None else None
         self.graphics_widget.addItem(self.track_map)
+
+        # Create and Add IRSensorWidget
+
+        self.ir_sensor = IRSensorWidget()
+        self.graphics_widget.addItem(self.ir_sensor)
         
         # Load and process image if config is provided
         if config is not None:
@@ -107,3 +114,5 @@ class MainWindow():
             return
         most_recent = self.packets[ticks[len(ticks) - 1]]
         self.track_map.update_robot_position(most_recent.distance)
+
+        self.ir_sensor.update(np.array([self.packets[t].ir_raw for t in ticks]))
