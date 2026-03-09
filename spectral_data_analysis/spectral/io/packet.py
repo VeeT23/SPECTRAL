@@ -46,7 +46,7 @@ class TelemetryPacket:
         )
 
 
-def read_packet(serial_obj):
+def read_packet(serial_obj) -> TelemetryPacket | None:
     data = serial_obj.read_packet(SIZE)
 
     if data is None:

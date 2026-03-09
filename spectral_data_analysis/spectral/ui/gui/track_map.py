@@ -1,9 +1,9 @@
 
 import pyqtgraph as pg
 import numpy as np
-from geometry.polyline import Polyline
-from ui.gui.color_line import ColorLine
-from data.image_processor import generate_path_from_skeleton
+from spectral.geometry.polyline import Polyline
+from spectral.ui.gui.color_line import ColorLine
+from spectral.data.image_processor import generate_path_from_skeleton
 
 class TrackMapWidget(pg.PlotItem):
     def __init__(self, parent=None):
@@ -129,7 +129,6 @@ class TrackMapWidget(pg.PlotItem):
             
             print(f"Image scaled: {width}px = {actual_width_meters}m, scale factor: {scale_factor}")
     
-    
     def clear_images(self):
         """
         Clear all stored images.
@@ -194,3 +193,27 @@ class TrackMapWidget(pg.PlotItem):
         except ValueError as e:
             print(f"Error creating path from skeleton: {e}")
             return None
+        
+    def create_boundary_lines(self, width: float):
+        left_boundary_polyline, right_boundary_polyline = self.path_line.polyline.offset_polyline(offset=(width / 2))
+
+        self.left_boundary_line = ColorLine(left_boundary_polyline, parent_plot=self)
+        self.right_boundary_line = ColorLine(right_boundary_polyline, parent_plot=self)
+
+        return self.left_boundary_line, self.right_boundary_line
+    
+    def update_robot_position(self, distance_along_path : float):
+        """
+        Update and display the robot position marker along the path.
+        
+        Args:
+            distance_along_path: Distance from the start of the path in meters.
+        """
+        x, y = self.path_line.polyline.point_at_distance(distance_along_path)
+        
+        # Create or update robot position marker
+        if not hasattr(self, 'robot_marker'):
+            self.robot_marker = pg.ScatterPlotItem(pxMode=False)
+            self.addItem(self.robot_marker)
+        
+        self.robot_marker.setData(x=[x], y=[y], size=0.05, brush=pg.mkBrush('red'))

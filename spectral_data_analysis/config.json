@@ -1,4 +1,5 @@
 {
     "course_filepath":"pathfinder_2026.png",
-    "course_size_meters": [2.54, 2.54]
+    "course_size_meters": [2.54, 2.54],
+    "robot_sensor_sweep_width_meters": 0.2
 }

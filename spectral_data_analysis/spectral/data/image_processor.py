@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 from skimage.morphology import skeletonize
 from collections import deque
-from geometry.polyline import Polyline
+from spectral.geometry.polyline import Polyline
 # ---------------- Image Pipeline ----------------
 
 

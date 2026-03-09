@@ -1,4 +1,4 @@
-from ui.gui.color_line import color_modes
+from spectral.ui.gui.color_line import color_modes
 from PyQt6 import QtWidgets
 from PyQt6.QtGui import QAction, QActionGroup
 
@@ -40,6 +40,13 @@ class MenuBar(QtWidgets.QMenuBar):
             self.color_mode_menu.addAction(action)
 
         self.boundary_menu = self.track_map_menu.addMenu('Boundaries')
+        
+        self.show_boundary_action = QAction('Show Boundaries', self)
+        self.show_boundary_action.setCheckable(True)
+        self.show_boundary_action.triggered.connect(lambda checked: self.main_window.set_boundary_visibility(checked))
+        self.boundary_menu.addAction(self.show_boundary_action)
+
+        
 
     def create_stages_menu(self, stages):
         self.stage_group = QActionGroup(self)

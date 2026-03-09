@@ -1,4 +1,4 @@
-from geometry.polyline import Polyline
+from spectral.geometry.polyline import Polyline
 import matplotlib
 import numpy as np
 import pyqtgraph as pg

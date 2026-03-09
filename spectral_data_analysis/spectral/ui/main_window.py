@@ -1,12 +1,17 @@
 from PyQt6 import QtWidgets
 import pyqtgraph as pg
-from ui.menu_bar import MenuBar
-from ui.gui.track_map import TrackMapWidget
-from data.image_processor import process_image
+from spectral.io.packet import TelemetryPacket
+from spectral.ui.menu_bar import MenuBar
+from spectral.ui.gui.track_map import TrackMapWidget
+from spectral.data.image_processor import process_image
+
 
 class MainWindow():
     def __init__(self, config=None):
-        
+
+        self.packets = {}
+        self.prev_tick = None
+
         self.win = QtWidgets.QMainWindow()
         self.win.setWindowTitle("Spectral Data Analysis")
         self.win.resize(900, 700)
@@ -45,7 +50,9 @@ class MainWindow():
                 self.track_map.set_images(stages_dict)
                 self.track_map.set_path_from_skeleton(stages_dict["Final"])
                 self.track_map.actual_size_meters = config.data.get('course_size_meters')
+                
 
+                self.track_map.create_boundary_lines(width=config.data.get('robot_sensor_sweep_width_meters', 0.1))
                 self.menu_bar.create_stages_menu(["None"] + stage_names)
                 
         except Exception as e:
@@ -72,3 +79,31 @@ class MainWindow():
                 self.track_map.path_line.show()
             else:
                 self.track_map.path_line.hide()
+    
+    def set_boundary_visibility(self, visible):
+        """Show or hide the boundary visualization."""
+
+        print(f"Setting boundary visibility to: {visible}")
+        if self.track_map.left_boundary_line is not None:
+            if visible:
+                self.track_map.left_boundary_line.show()
+            else:
+                self.track_map.left_boundary_line.hide()
+        if self.track_map.right_boundary_line is not None:
+            if visible:
+                self.track_map.right_boundary_line.show()
+            else:
+                self.track_map.right_boundary_line.hide()
+
+    def on_packet(self, packet : TelemetryPacket):
+
+        if self.prev_tick is not None and packet.ticks_since_idle < self.prev_tick: # New run, reset packets
+            self.packets = {}
+        
+        self.prev_tick = packet.ticks_since_idle
+        self.packets[packet.ticks_since_idle] = packet
+        ticks = sorted(self.packets.keys())
+        if len(ticks) == 0:
+            return
+        most_recent = self.packets[ticks[len(ticks) - 1]]
+        self.track_map.update_robot_position(most_recent.distance)

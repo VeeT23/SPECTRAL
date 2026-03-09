@@ -122,6 +122,59 @@ class Polyline:
         """
         return sum(self.get_segment_lengths())
     
+    def point_at_distance(self, distance: float) -> Tuple[float, ...]:
+        """
+        Return a point along the polyline at a specified distance from the start.
+        
+        Args:
+            distance: Distance from the start of the polyline. 
+                     If distance > total length, returns the last point.
+                     If distance < 0, returns the first point.
+        
+        Returns:
+            A point tuple at the specified distance along the polyline.
+        
+        Raises:
+            ValueError: If the polyline has fewer than 2 points.
+        """
+        if len(self.points) < 2:
+            raise ValueError("Polyline must have at least 2 points")
+        
+        # Handle boundary cases
+        if distance <= 0:
+            return self.points[0]
+        
+        segment_lengths = self.get_segment_lengths()
+        total_length = sum(segment_lengths)
+        
+        if distance >= total_length:
+            return self.points[-1]
+        
+        # Find which segment the distance falls into
+        cumulative_distance = 0.0
+        for i, seg_length in enumerate(segment_lengths):
+            if cumulative_distance + seg_length >= distance:
+                # Distance falls in this segment
+                remaining_distance = distance - cumulative_distance
+                
+                # Interpolate between points[i] and points[i+1]
+                p1 = self.points[i]
+                p2 = self.points[i + 1]
+                
+                # Calculate the ratio along this segment
+                ratio = remaining_distance / seg_length if seg_length > 0 else 0
+                
+                # Linear interpolation
+                interpolated_point = tuple(
+                    p1[j] + ratio * (p2[j] - p1[j]) for j in range(len(p1))
+                )
+                return interpolated_point
+            
+            cumulative_distance += seg_length
+        
+        # Fallback: return last point
+        return self.points[-1]
+    
     def add_point(self, point: Tuple[float, ...]) -> None:
         """
         Add a new point to the end of the polyline.
@@ -284,12 +337,13 @@ class Polyline:
             total += abs(curve)
         return total
     
-    def offset_polyline(self, offset: float) -> Tuple['Polyline', 'Polyline']:
+    def offset_polyline(self, offset: float, fix_pinches: bool = True, pinches_neighbor_window: int = 5) -> Tuple['Polyline', 'Polyline']:
         """
         Create offset polylines on both sides.
         
         Args:
             offset: Distance to offset. Positive = left, Negative = right.
+            fix_pinches: If True, removes local self-intersections.
         
         Returns:
             Tuple of (left_polyline, right_polyline)
@@ -340,6 +394,10 @@ class Polyline:
 
         left = offset_single_side(self.points, offset)
         right = offset_single_side(self.points, -offset)
+
+        if fix_pinches:
+            left = self._remove_local_pinches(left, neighbor_window=pinches_neighbor_window)
+            right = self._remove_local_pinches(right, neighbor_window=pinches_neighbor_window)
 
         return Polyline(left), Polyline(right)
     
@@ -529,3 +587,4 @@ class Polyline:
         simplified_points = [tuple(p) for p in simplified]
         
         return Polyline(simplified_points)
+
