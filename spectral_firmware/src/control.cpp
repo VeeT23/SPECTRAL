@@ -119,7 +119,8 @@ void controlTask(void *arg)
 
         // ---------- PROCESS RADIO CONTROL ----------
 
-        if (RadioInstance().update())
+        bool radio_timed_out = RadioInstance().update();
+        if (radio_timed_out)
         {
             Serial.println("Timed out!");
             current_mode = 0;
@@ -128,7 +129,7 @@ void controlTask(void *arg)
         ControlPacket rx;
         if (RadioInstance().recieve(rx))
         {
-            if (current_mode != rx.control_mode && rx.control_mode == 1) // Just entered line following mode, reset odometry and PID state
+            if (current_mode != rx.control_mode && rx.control_mode == 2) // Just entered line following mode, reset odometry and PID state
             {
                 lastIdle = ticks;
                 motor_left.zeroPosition();
@@ -154,13 +155,13 @@ void controlTask(void *arg)
 
         // ---------- PROCESS SENSORS ----------
 
-        for (int i = 0; i < TOTAL_SENSORS / SENSORS_PER_MODULE; i++)
+        for (int i = 0; i < SENSORS_PER_MODULE; i++)
         {
             poll_sensors();
         }
 
         process_ir_data();
-        int8_t error = get_error(); // returns INT8_MAX if no line detected
+        int8_t error = get_error(0.5f); // returns INT8_MAX if no line detected
 
         // ---------- UPDATE CONTROL STATE ----------
         updateOdometry(
@@ -182,7 +183,7 @@ void controlTask(void *arg)
             prev_error = error;
         }
         float pid_output = 0.0F;
-        if (current_mode == 1)
+        if (current_mode == 2)
         {
             activeDuration = ticks - lastIdle;
             pid_output = pid_update(valid_error / static_cast<float>(TOTAL_SENSORS / 2), CONTROL_PERIOD * portTICK_PERIOD_MS / 1000.0f); // Normalize error to [-1, 1] range
@@ -191,18 +192,35 @@ void controlTask(void *arg)
 
         switch (current_mode)
         {
-        case 0:
+        case 0: // Idle
         {
-            motor_left.setVelocity(0);
-            motor_right.setVelocity(0);
+            motor_left.enterIdle();
+            motor_right.enterIdle();
             break;
         }
-        case 1:
+        case 1: // Remote control
         {
+            motor_left.enterClosedLoop();
+            motor_right.enterClosedLoop();
+
+            // Convert throttle from m/s to rev/s
+            float set_rev_left = throttle_left / WHEEL_CIRCUMFERENCE_M;
+            float set_rev_right = throttle_right / WHEEL_CIRCUMFERENCE_M;
+            
+            motor_left.setVelocity(set_rev_left);
+            motor_right.setVelocity(set_rev_right);
+            break;
+        }
+        case 2: // Line following
+        {
+            motor_left.enterClosedLoop();
+            motor_right.enterClosedLoop();
+
             if (ENABLE_MOTORS)
             {
-                motor_left.setVelocity(MAX_REV + pid_output * MAX_REV);
-                motor_right.setVelocity(MAX_REV - pid_output * MAX_REV);
+                float set_rev = rx.max_velocity / WHEEL_CIRCUMFERENCE_M; // Calculate from max_velocity
+                motor_left.setVelocity(set_rev + pid_output * set_rev);
+                motor_right.setVelocity(set_rev - pid_output * set_rev);
             }
             else
             {
@@ -211,24 +229,49 @@ void controlTask(void *arg)
             }
             break;
         }
-        case 2:
-        {
-            motor_left.setVelocity(MAX_REV * throttle_left);
-            motor_right.setVelocity(MAX_REV * throttle_right);
-        }
         }
 
         // ---------- DEBUG ----------
         if (ticks - lastDraw >= DRAW_PERIOD)
         {
-            Screen::instance().clear();
-            for (uint8_t i = 0; i < TOTAL_SENSORS; i++)
-            {
-                Screen::instance().gfx().drawRect((TOTAL_SENSORS - i) * 3, 0, 2, ir_processed[i] ? 8 : 0, SSD1306_WHITE);
-            }
-            Screen::instance().gfx().drawCircle((64 - (128 / TOTAL_SENSORS * error)), 12, 3, SSD1306_WHITE);
-            Screen::instance().show();
+            Screen::instance().gfx().clearDisplay();
 
+            if (radio_timed_out)
+            {
+                Screen::instance().gfx().setCursor(0, 10);
+                Screen::instance().drawCenteredText("NO SIGNAL",0,0,128,64,2);
+            }
+            else
+            {
+                Screen::instance().gfx().setTextSize(1);
+                for (uint8_t i = 0; i < TOTAL_SENSORS; i++)
+                {
+                    Screen::instance().gfx().drawRect((TOTAL_SENSORS - i) * 3, 0, 2, ir_processed[i] ? 8 : 0, SSD1306_WHITE);
+                }
+                Screen::instance().gfx().drawCircle((64 - (128 / TOTAL_SENSORS * error)), 12, 3, SSD1306_WHITE);
+
+                switch (current_mode)
+                {
+                case 0:
+                    Screen::instance().gfx().setCursor(0, 20);
+                    Screen::instance().gfx().print("Mode: Idle");
+                    break;
+                case 1:
+                    Screen::instance().gfx().setCursor(0, 20);
+                    Screen::instance().gfx().print("Mode: Remote");
+                    break;
+                case 2:
+                    Screen::instance().gfx().setCursor(0, 20);
+                    Screen::instance().gfx().print("Mode: Line Follow");
+                    break;
+                }
+
+                Screen::instance().gfx().setCursor(0, 35);
+                Screen::instance().gfx().printf("ThrL: %.2f", throttle_left);
+                Screen::instance().gfx().setCursor(0, 45);
+                Screen::instance().gfx().printf("ThrR: %.2f", throttle_right);
+            }
+            Screen::instance().gfx().display();
             lastDraw = ticks;
         }
 
@@ -266,7 +309,7 @@ void controlTask(void *arg)
 
             tx.packed_ir_processed = packed;
 
-            tx.line_error = error;
+            tx.line_error = valid_error;
             tx.pid_output = pid_output;
 
             tx.distance = odom.distance; // Approximate distance traveled (relative to start)

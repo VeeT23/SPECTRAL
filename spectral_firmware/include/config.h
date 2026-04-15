@@ -12,10 +12,6 @@ constexpr float WHEEL_SPACING_M = WHEEL_SPACING_MM / 1000.0f;
 constexpr float WHEEL_CIRCUMFERENCE_M =
     (WHEEL_DIAMETER_MM * PI) / 1000.0f;
 
-constexpr float MAX_VELOCITY = 0.25f; // m/s
-
-constexpr float MAX_REV = MAX_VELOCITY / WHEEL_CIRCUMFERENCE_M; // rev/s
-
 constexpr float KP = 1.0f;  // Proportional gain for line following
 constexpr float KI = 0.01f; // Integral gain for line following
 constexpr float KD = 0.01f; // Derivative gain for line following
@@ -50,6 +46,7 @@ constexpr uint32_t ODRIVE_CMD_SET_INPUT_VEL = 0x0D;
 constexpr uint32_t ODRIVE_CMD_CLEAR_ERRORS = 0x18;
 
 constexpr uint32_t AXIS_STATE_CLOSED_LOOP = 8;
+constexpr uint32_t AXIS_STATE_IDLE = 1;
 
 constexpr uint32_t HEARTBEAT_TIMEOUT_MS = 200;
 

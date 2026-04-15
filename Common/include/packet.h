@@ -8,6 +8,7 @@ struct __attribute__((packed)) ControlPacket
     uint8_t control_mode;
     float throttle_left;  // Desired velocity in m/s
     float throttle_right; // Desired steering angle in degrees
+    float max_velocity;   // Maximum velocity in m/s for line following
 };
 
 struct __attribute__((packed)) TelemetryPacket

@@ -3,7 +3,7 @@ import matplotlib
 import numpy as np
 import pyqtgraph as pg
 
-color_modes = ['solid', 'length', 'curvature']
+color_modes = ['solid', 'length', 'curvature', 'angle']
 
 class ColorLine:
     def __init__(self, polyline: Polyline, parent_plot=None):
@@ -84,8 +84,19 @@ class ColorLine:
             else:
                 self.segment_colors = [pg.mkColor(128, 128, 128)] * num_segments
         
+        elif mode == 'angle':
+            # Color segments based on heading angle changes at vertices
+            angles = self.polyline.compute_segment_angles()
+            if len(angles) > 0:
+                # Pad with 0s at endpoints to match number of segments
+                # We have len(points) - 2 angles, but len(points) - 1 segments
+                padded_angles = [0] + list(angles) + [0]
+                self.segment_colors = self._data_to_color(np.array(padded_angles))
+            else:
+                self.segment_colors = [pg.mkColor(128, 128, 128)] * num_segments
+        
         else:
-            raise ValueError(f"Unknown color mode: {mode}. Must be 'solid', 'length', or 'curvature'.")
+            raise ValueError(f"Unknown color mode: {mode}. Must be 'solid', 'length', 'curvature', or 'angle'.")
         
         # Redraw if parent plot is set
         if self.parent_plot is not None:

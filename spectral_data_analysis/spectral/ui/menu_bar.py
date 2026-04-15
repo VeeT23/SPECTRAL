@@ -12,6 +12,11 @@ class MenuBar(QtWidgets.QMenuBar):
         # Create File menu
         self.file_menu = self.addMenu('File')
         
+        # Add Load action to File menu
+        self.load_action = QAction('Load', self)
+        self.load_action.triggered.connect(lambda: self.main_window.load_file())
+        self.file_menu.addAction(self.load_action)
+        
         # Create Edit menu
         self.edit_menu = self.addMenu('Edit')
         

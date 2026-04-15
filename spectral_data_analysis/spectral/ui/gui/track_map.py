@@ -217,3 +217,5 @@ class TrackMapWidget(pg.PlotItem):
             self.addItem(self.robot_marker)
         
         self.robot_marker.setData(x=[x], y=[y], size=0.05, brush=pg.mkBrush('red'))
+
+        return (x, y)

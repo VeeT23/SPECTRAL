@@ -60,31 +60,34 @@ void process_ir_data()
     }
 }
 
-int8_t get_error()
+int8_t get_error(float offset = 0.0f)
 {
+    offset = constrain(offset, -1.0f, 1.0f); // Ensure offset is within [-1, 1]
     if (TOTAL_SENSORS == 0)
         return INT8_MAX;
 
     int8_t found_index = -1;
 
-    // Define the two center positions
-    int8_t center_left = (TOTAL_SENSORS - 1) / 2;
-    int8_t center_right = TOTAL_SENSORS / 2;
+    // Map offset (-1..1) to search center position (0..TOTAL_SENSORS-1)
+    // offset -1 -> position 0, offset 0 -> center, offset 1 -> TOTAL_SENSORS-1
+    float target_pos = (offset + 1.0f) * (TOTAL_SENSORS - 1) / 2.0f;
+    int8_t center_left = (int8_t)target_pos;
+    int8_t center_right = center_left + 1;
 
-    // Search outward symmetrically
-    for (int8_t offset = 0; offset <= center_right; offset++)
+    // Search outward symmetrically from offset position
+    for (int8_t search_offset = 0; search_offset <= TOTAL_SENSORS; search_offset++)
     {
-        if (center_left - offset >= 0 &&
-            ir_processed[center_left - offset])
+        if (center_left - search_offset >= 0 &&
+            ir_processed[center_left - search_offset])
         {
-            found_index = center_left - offset;
+            found_index = center_left - search_offset;
             break;
         }
 
-        if (center_right + offset < TOTAL_SENSORS &&
-            ir_processed[center_right + offset])
+        if (center_right + search_offset < TOTAL_SENSORS &&
+            ir_processed[center_right + search_offset])
         {
-            found_index = center_right + offset;
+            found_index = center_right + search_offset;
             break;
         }
     }
@@ -106,13 +109,13 @@ int8_t get_error()
     int16_t midpoint_times2 = left + right;
     // (left + right) = 2 * midpoint
 
-    // True center scaled by 2
-    int16_t center_times2 = TOTAL_SENSORS - 1;
+    // Target center scaled by 2, shifted by offset
+    int16_t center_times2 = (int16_t)(target_pos * 2.0f);
 
     // Signed error
     int16_t error = midpoint_times2 - center_times2;
 
-    return (int8_t)(error / 2);
+    return (int8_t)(error / 2); // Divide by 2 to get back to original scale
 }
 
 float pid_update(float error, float dt)

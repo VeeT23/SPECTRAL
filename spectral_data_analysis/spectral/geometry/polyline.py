@@ -264,14 +264,13 @@ class Polyline:
     
     def compute_segment_angles(self) -> np.ndarray:
         """
-        Compute the interior angle at each vertex of the polyline.
+        Compute the relative change in heading angle at each segment junction.
 
         Returns:
-            np.ndarray of length N-2: Angle at each interior vertex in **radians**.
-            Measured between vectors p1-p0 and p2-p1.
+            np.ndarray of length N-2: Signed angle change at each interior vertex in **radians**.
+            Range: (-pi, pi]. Positive = left turn (CCW), negative = right turn (CW).
         """
-        path = np.asarray(self.points[:2], dtype=float) if self.points[0].__len__() == 2 else \
-               np.asarray([p[:2] for p in self.points], dtype=float)
+        path = np.asarray([p[:2] for p in self.points], dtype=float)
         n = len(path)
         if n < 3:
             return np.array([])
@@ -281,17 +280,27 @@ class Polyline:
         for i in range(1, n-1):
             p0, p1, p2 = path[i-1], path[i], path[i+1]
 
-            v1 = p0 - p1
+            # Vectors for the two consecutive segments
+            v1 = p1 - p0
             v2 = p2 - p1
 
             # Normalize vectors
-            v1_norm = v1 / (np.linalg.norm(v1) + 1e-12)
-            v2_norm = v2 / (np.linalg.norm(v2) + 1e-12)
+            len_v1 = np.linalg.norm(v1)
+            len_v2 = np.linalg.norm(v2)
 
-            # Angle between vectors using arccos
-            dot = np.clip(np.dot(v1_norm, v2_norm), -1.0, 1.0)
-            angle = np.arccos(dot)
-            angles.append(angle)
+            if len_v1 > 0 and len_v2 > 0:
+                v1_norm = v1 / len_v1
+                v2_norm = v2 / len_v2
+
+                # Calculate signed angle change using atan2
+                dot_product = np.dot(v1_norm, v2_norm)
+                cross_product = v1_norm[0] * v2_norm[1] - v1_norm[1] * v2_norm[0]
+
+                # Signed angle in radians, range (-pi, pi]
+                angle = math.atan2(cross_product, dot_product)
+                angles.append(angle)
+            else:
+                angles.append(0.0)
 
         return np.array(angles)
     
@@ -336,6 +345,90 @@ class Polyline:
         for curve in angles:
             total += abs(curve)
         return total
+    
+    def closest_point_on_line(self, point: Tuple[float, ...]) -> Tuple[Tuple[float, ...], float, int, float]:
+        """
+        Find the closest point on the polyline to a given point.
+        
+        Args:
+            point: A tuple representing the query point (2D or 3D).
+        
+        Returns:
+            A tuple of (closest_point, distance, segment_index, arc_length) where:
+            - closest_point: The closest point on the polyline as a tuple
+            - distance: The Euclidean distance from the query point to the closest point
+            - segment_index: The index of the segment containing the closest point (0 to len(points)-2)
+            - arc_length: The cumulative distance along the polyline from the first vertex to the closest point
+        """
+        point_array = np.array(point[:2], dtype=float)  # Use only x, y for distance calculation
+        
+        min_distance = float('inf')
+        closest_point = None
+        closest_segment = -1
+        closest_t = 0.0  # Parameter along the segment where closest point lies
+        
+        for i in range(len(self.points) - 1):
+            p1 = np.array(self.points[i][:2], dtype=float)
+            p2 = np.array(self.points[i + 1][:2], dtype=float)
+            
+            # Vector from p1 to p2
+            segment_vector = p2 - p1
+            segment_length_sq = np.dot(segment_vector, segment_vector)
+            
+            if segment_length_sq == 0:
+                # Segment is a point (p1 == p2)
+                dist = np.linalg.norm(point_array - p1)
+                if dist < min_distance:
+                    min_distance = dist
+                    closest_point = self.points[i]
+                    closest_segment = i
+                    closest_t = 0.0
+            else:
+                # Vector from p1 to the query point
+                point_vector = point_array - p1
+                
+                # Project the point onto the line segment
+                t = np.dot(point_vector, segment_vector) / segment_length_sq
+                
+                # Clamp t to [0, 1] to stay on the segment
+                t = np.clip(t, 0, 1)
+                
+                # Calculate the projected point on the segment
+                projected_point_2d = p1 + t * segment_vector
+                
+                # Calculate distance
+                dist = np.linalg.norm(point_array - projected_point_2d)
+                
+                if dist < min_distance:
+                    min_distance = dist
+                    # Preserve all coordinates (2D or 3D)
+                    if len(self.points[i]) > 2 or len(self.points[i + 1]) > 2:
+                        # Interpolate additional coordinates
+                        z_coords = self.points[i][2:] if len(self.points[i]) > 2 else self.points[i + 1][2:]
+                        projected_point = tuple(projected_point_2d) + z_coords
+                    else:
+                        projected_point = tuple(projected_point_2d)
+                    closest_point = projected_point
+                    closest_segment = i
+                    closest_t = t
+        
+        # Calculate arc length to the closest point
+        arc_length = 0.0
+        
+        # Sum lengths of all segments before the closest segment
+        for i in range(closest_segment):
+            seg_start = np.array(self.points[i][:2], dtype=float)
+            seg_end = np.array(self.points[i + 1][:2], dtype=float)
+            arc_length += np.linalg.norm(seg_end - seg_start)
+        
+        # Add distance along the closest segment
+        if closest_segment >= 0:
+            seg_start = np.array(self.points[closest_segment][:2], dtype=float)
+            seg_end = np.array(self.points[closest_segment + 1][:2], dtype=float)
+            segment_length = np.linalg.norm(seg_end - seg_start)
+            arc_length += closest_t * segment_length
+        
+        return (closest_point, min_distance, closest_segment, arc_length)
     
     def offset_polyline(self, offset: float, fix_pinches: bool = True, pinches_neighbor_window: int = 5) -> Tuple['Polyline', 'Polyline']:
         """

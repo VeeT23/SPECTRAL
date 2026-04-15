@@ -2,25 +2,35 @@ import serial
 import serial.tools.list_ports
 import threading
 import time
+from queue import Queue
 
 HEADER = 0xAA55
 HEADER_BYTES = HEADER.to_bytes(2, byteorder="little")
 
 
 class ESP32Serial:
-    def __init__(self, baudrate=576000, timeout=1):
+    def __init__(self, baudrate=576000, timeout=1, packet_size=None):
         self.baudrate = baudrate
         self.timeout = timeout
         self.ser = None
         self.connected = False
         self.running = True
+        self.packet_size = packet_size
 
         self._lock = threading.Lock()
-        self._thread = threading.Thread(
+        self._packet_queue = Queue(maxsize=10)  # Buffer up to 10 packets
+        
+        self._connection_thread = threading.Thread(
             target=self._connection_loop,
             daemon=True
         )
-        self._thread.start()
+        self._connection_thread.start()
+        
+        self._read_thread = threading.Thread(
+            target=self._read_loop,
+            daemon=True
+        )
+        self._read_thread.start()
 
     # ---------------- PORT SCAN ----------------
     def _scan_ports(self):
@@ -68,8 +78,35 @@ class ESP32Serial:
                 time.sleep(0.2)
 
     # ---------------- HEADER-SAFE PACKET READ ----------------
-    def read_packet(self, expected_payload_size):
-        if not self.connected:
+    def _read_loop(self):
+        """Background thread that continuously reads packets from serial."""
+        while self.running:
+            if not self.connected:
+                time.sleep(0.1)
+                continue
+            
+            packet_data = self._read_packet_blocking(self.packet_size)
+            if packet_data is not None:
+                try:
+                    self._packet_queue.put_nowait(packet_data)
+                except:
+                    # Queue full, drop oldest packet
+                    try:
+                        self._packet_queue.get_nowait()
+                        self._packet_queue.put_nowait(packet_data)
+                    except:
+                        pass
+    
+    def get_packet(self):
+        """Non-blocking: Get next packet from queue, or None if empty."""
+        try:
+            return self._packet_queue.get_nowait()
+        except:
+            return None
+    
+    def _read_packet_blocking(self, expected_payload_size):
+        """Internal blocking read. Called from background thread only."""
+        if not self.connected or expected_payload_size is None:
             return None
 
         try:
@@ -116,8 +153,18 @@ class ESP32Serial:
 
             return None
 
+    def read_packet(self, expected_payload_size):
+        """Deprecated: Kept for backward compatibility. Use get_packet() instead."""
+        if expected_payload_size is not None:
+            self.packet_size = expected_payload_size
+        return self.get_packet()
+
     # ---------------- CLEAN SHUTDOWN ----------------
     def close(self):
         self.running = False
+        if self._connection_thread:
+            self._connection_thread.join(timeout=2)
+        if self._read_thread:
+            self._read_thread.join(timeout=2)
         if self.ser:
             self.ser.close()

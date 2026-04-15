@@ -35,13 +35,14 @@ public:
         constrainToCircle(joy_x, joy_y);
     }
 
-    void draw(int xOffset, int yOffset)
+    void draw(int xOffset, int yOffset, int width, int height)
     {
         Adafruit_SSD1306 &display = Screen::instance().gfx();
 
-        constexpr int halfSize = 32;
+        int halfSize = width / 2;
         constexpr int maxDotRadius = 3;
         constexpr int minDotRadius = 1;
+        int circleRadius = halfSize - 1;  // Reduce by 1 to stay within box
 
         const int cx = xOffset + halfSize;
         const int cy = yOffset + halfSize;
@@ -50,16 +51,28 @@ public:
         float mag = hypotf(joy_x, joy_y);
         int dotR = computeDotRadius(mag, DEADZONE, minDotRadius, maxDotRadius);
 
-        int dx = static_cast<int>(joy_x * halfSize);
-        int dy = static_cast<int>(-joy_y * halfSize);
-        int dz = static_cast<int>(DEADZONE * halfSize);
+        float dx_f = joy_x * circleRadius;
+        float dy_f = -joy_y * circleRadius;
+        
+        // Constrain dot position to stay within circle (accounting for dot radius)
+        int maxDotDistance = circleRadius - dotR;
+        float dotMag = hypotf(dx_f, dy_f);
+        if (dotMag > maxDotDistance)
+        {
+            dx_f = (dx_f / dotMag) * maxDotDistance;
+            dy_f = (dy_f / dotMag) * maxDotDistance;
+        }
+        
+        int dx = static_cast<int>(dx_f);
+        int dy = static_cast<int>(dy_f);
+        int dz = static_cast<int>(DEADZONE * circleRadius);
 
         // Outer box
         display.drawRect(xOffset, yOffset,
                          halfSize * 2, halfSize * 2, SSD1306_WHITE);
 
         // Circular limit
-        display.drawCircle(cx, cy, halfSize, SSD1306_WHITE);
+        display.drawCircle(cx, cy, circleRadius, SSD1306_WHITE);
 
         // Deadzone (visualized using global constant)
         display.drawRect(cx - dz, cy - dz, dz * 2, dz * 2, SSD1306_WHITE);

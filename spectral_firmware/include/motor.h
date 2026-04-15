@@ -31,9 +31,22 @@ public:
         sendFrame(ODRIVE_CMD_CLEAR_ERRORS, nullptr, 0);
     }
 
-    void enterClosedLoop()
+    void enterClosedLoop(bool force = false)
     {
-        sendU32(ODRIVE_CMD_SET_AXIS_STATE, AXIS_STATE_CLOSED_LOOP);
+        if (force || desired_axis_state_ != AXIS_STATE_CLOSED_LOOP)
+        {
+            desired_axis_state_ = AXIS_STATE_CLOSED_LOOP;
+            sendU32(ODRIVE_CMD_SET_AXIS_STATE, AXIS_STATE_CLOSED_LOOP);
+        }
+    }
+
+    void enterIdle(bool force = false)
+    {
+        if (force || desired_axis_state_ != AXIS_STATE_IDLE)
+        {
+            desired_axis_state_ = AXIS_STATE_IDLE;
+            sendU32(ODRIVE_CMD_SET_AXIS_STATE, AXIS_STATE_IDLE);
+        }
     }
 
     void zeroPosition()
@@ -149,6 +162,7 @@ private:
     float revolution_offset_ = 0.0f;
     const bool inverted_;
     uint8_t node_id_;
+    uint32_t desired_axis_state_ = AXIS_STATE_IDLE;
     MotorTelemetry telemetry_{};
 
     // ---------- CAN Helpers ----------
