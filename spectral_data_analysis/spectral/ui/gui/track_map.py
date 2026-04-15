@@ -216,6 +216,24 @@ class TrackMapWidget(pg.PlotItem):
             self.robot_marker = pg.ScatterPlotItem(pxMode=False)
             self.addItem(self.robot_marker)
         
-        self.robot_marker.setData(x=[x], y=[y], size=0.05, brush=pg.mkBrush('red'))
+        self.robot_marker.setData(x=[x], y=[y], size=0.05, brush=pg.mkBrush('red'), pen=pg.mkPen('black'))
+
+        return (x, y)
+    
+    def update_highlight_point(self, distance_along_path : float):
+        """
+        Update and display a highlight point marker along the path.
+        
+        Args:
+            distance_along_path: Distance from the start of the path in meters.
+        """
+        x, y = self.path_line.polyline.point_at_distance(distance_along_path)
+        
+        # Create or update highlight point marker
+        if not hasattr(self, 'highlight_marker'):
+            self.highlight_marker = pg.ScatterPlotItem(pxMode=False)
+            self.addItem(self.highlight_marker)
+        
+        self.highlight_marker.setData(x=[x], y=[y], size=0.05, brush=pg.mkBrush('blue'), pen=pg.mkPen('black'))
 
         return (x, y)

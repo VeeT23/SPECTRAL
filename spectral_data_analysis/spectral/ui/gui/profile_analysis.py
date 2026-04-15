@@ -1,5 +1,6 @@
 import pyqtgraph as pg
 import numpy as np
+from PyQt6.QtGui import QCursor
 from spectral.geometry.polyline import Polyline
 
 
@@ -28,6 +29,9 @@ class ProfileAnalysisWidget(pg.PlotItem):
         self.robot_distance = None
         self.robot_line = None  # Vertical line for robot position
         self.mode = 'angle'  # Current analysis mode
+        self.mouse_line = None  # Vertical line for mouse position
+        self.last_mouse_x = None  # Last mouse x position in data coordinates
+        self.mouse_is_hovering = False  # Track if mouse is over the plot
         
         # Configure plot
         self.setLabel('bottom', 'Distance', units='m')
@@ -202,3 +206,105 @@ class ProfileAnalysisWidget(pg.PlotItem):
             pen=pg.mkPen(color=(255, 0, 0), width=2, style=pg.QtCore.Qt.PenStyle.DashLine),
         )
         self.addItem(self.robot_line)
+    
+    def track_mouse_position(self) -> float:
+        """
+        Get the current mouse position and manage a blue vertical line at that x coordinate.
+        
+        The method is called at regular intervals (e.g., from MainWindow.update()) and:
+        - Draws a blue infinite line at the mouse's x position if hovering over the graph
+        - Hides the line if the mouse is not hovering over the graph
+        - Returns the x value in meters if the mouse is over the graph, None otherwise
+        - Clamps the x value to the domain of the curve
+        
+        Returns:
+            float: The x value (distance in meters) of the mouse position over the graph,
+                   clamped to the curve's domain, or None if the mouse is not hovering
+        """
+        view_box = self.getViewBox()
+        if view_box is None:
+            return None
+        
+        scene = self.scene()
+        if scene is None:
+            return None
+        
+        # Get the graphics view from the scene
+        views = scene.views()
+        if not views:
+            return None
+        
+        view = views[0]
+        
+        # Get global mouse position and convert to view coordinates
+        global_mouse_pos = QCursor.pos()
+        local_mouse_pos = view.mapFromGlobal(global_mouse_pos)
+        
+        # Convert to scene coordinates
+        scene_pos = view.mapToScene(local_mouse_pos)
+        
+        # Convert to data coordinates
+        data_pos = view_box.mapSceneToView(scene_pos)
+        
+        # Get the plot's scene bounding rectangle
+        plot_rect = view_box.sceneBoundingRect()
+        
+        # Check if mouse is within the plot bounds
+        if plot_rect.contains(scene_pos):
+            # Mouse is hovering over the graph
+            x_value = data_pos.x()
+            
+            # Clamp to curve domain if we have distance values
+            if len(self.distance_values) > 0:
+                min_distance = float(np.min(self.distance_values))
+                max_distance = float(np.max(self.distance_values))
+                x_value = np.clip(x_value, min_distance, max_distance)
+            
+            self.last_mouse_x = x_value
+            self.mouse_is_hovering = True
+            
+            # Create or update the line
+            if self.mouse_line is None:
+                self.mouse_line = pg.InfiniteLine(
+                    pos=x_value,
+                    angle=90,  # Vertical line
+                    pen=pg.mkPen(color=(0, 0, 255), width=2),  # Blue line
+                )
+                self.addItem(self.mouse_line)
+            else:
+                # Update line position
+                self.mouse_line.setValue(x_value)
+            
+            return x_value
+        else:
+            # Mouse is not hovering over the graph
+            self.mouse_is_hovering = False
+            
+            # Remove the line if it exists
+            if self.mouse_line is not None:
+                self.removeItem(self.mouse_line)
+                self.mouse_line = None
+            
+            self.last_mouse_x = None
+            return None
+    
+    def mouseMoveEvent(self, event):
+        """
+        Handle mouse movement over the plot to track position.
+        
+        Args:
+            event: QGraphicsSceneMouseEvent with mouse position
+        """
+        super().mouseMoveEvent(event)
+    
+    def leaveEvent(self, event):
+        """
+        Handle mouse leaving the plot area.
+        
+        Args:
+            event: QEvent
+        """
+        super().leaveEvent(event)
+
+
+    

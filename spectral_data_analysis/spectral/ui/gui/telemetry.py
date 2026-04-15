@@ -1,6 +1,8 @@
 
 import pyqtgraph as pg
 import numpy as np
+from scipy.signal import savgol_filter
+from PyQt6.QtGui import QCursor
 
 
 class TelemetryWidget(pg.PlotItem):
@@ -29,15 +31,17 @@ class TelemetryWidget(pg.PlotItem):
         
         # Plot curves
         self.error_curve = None
-        self.pid_curve = None
+        self.highlight_regions = []
         
-        # Current plot mode
-        self.plot_mode = 'error'  # 'error', 'pid', or 'both'
+        # Mouse tracking variables
+        self.mouse_line = None
+        self.last_mouse_x = None
+        self.mouse_is_hovering = False
         
         # Configure plot
         self.setLabel('bottom', 'Distance', units='m')
-        self.setLabel('left', 'Line Error Cubed', units='rad³')
-        self.setTitle('Telemetry - Error Cubed vs Distance')
+        self.setLabel('left', 'Line Error')
+        self.setTitle('Telemetry - Error vs Distance')
         self.showGrid(x=True, y=True)
         
     def update_with_packets(self, packets_dict: dict) -> None:
@@ -81,112 +85,112 @@ class TelemetryWidget(pg.PlotItem):
         self._update_plot()
     
     def _update_plot(self) -> None:
-        """Update the plot based on the current plot mode and data."""
+        """Update the plot to display line error vs distance."""
         # Clear previous plot items
         self.clear()
         
         if len(self.distance_data) == 0:
             return
         
-        if self.plot_mode == 'error':
-            self._plot_error()
-        elif self.plot_mode == 'pid':
-            self._plot_pid()
-        elif self.plot_mode == 'both':
-            self._plot_both()
+        self._plot_error()
     
     def _plot_error(self) -> None:
-        """Plot line error cubed vs distance with rolling average."""
-        self.setLabel('left', 'Line Error Cubed', units='rad³')
-        self.setTitle('Telemetry - Error Cubed vs Distance')
+        """Plot line error vs distance."""
+        self.setLabel('left', 'Line Error', units='rad/m')
+        self.setTitle('Telemetry - Error vs Distance')
         
-        # Calculate cubed error
-        error_cubed = self.error_data ** 3
+        # Take the cube of the error to exaggerate differences, then clamp
+        error = self.error_data ** 3
+
+        # Smooth sharp spikes while preserving maintained stretches using Savitzky-Golay filter
+        if len(error) >= 5:
+            error = savgol_filter(error, window_length=5, polyorder=2)
+
+        error = np.clip(error, -100, 100)
+        # Round values between -20 and 20 to zero
+        error = np.where(np.abs(error) < 20, 0, error)
         
-        # Apply rolling average with window of 5 packets
-        window = 5
-        if len(error_cubed) >= window:
-            # Use convolution for rolling average
-            rolling_avg = np.convolve(error_cubed, np.ones(window) / window, mode='valid')
-            # Adjust distance data to match the smoothed data
-            distance_for_plot = self.distance_data[window - 1:]
-        else:
-            # If we have fewer packets than window, just use the data as-is
-            rolling_avg = error_cubed
-            distance_for_plot = self.distance_data
         
-        self.error_curve = self.plot(
-            distance_for_plot,
-            rolling_avg,
-            pen=pg.mkPen(color=(255, 0, 0), width=2),
-            symbol='o',
-            symbolSize=4,
-            symbolBrush=(255, 0, 0),
-            name='Line Error Cubed (5-packet rolling avg)'
-        )
-    
-    def _plot_pid(self) -> None:
-        """Plot PID output vs distance."""
-        self.setLabel('left', 'PID Output', units='V')
-        self.setTitle('Telemetry - PID Output vs Distance')
         
-        self.pid_curve = self.plot(
-            self.distance_data,
-            self.pid_data,
-            pen=pg.mkPen(color=(0, 255, 0), width=2),
-            symbol='s',
-            symbolSize=4,
-            symbolBrush=(0, 255, 0),
-            name='PID Output'
-        )
-    
-    def _plot_both(self) -> None:
-        """Plot both line error and PID output on same graph with dual axes."""
-        # Plot error on left axis
-        self.setLabel('left', 'Line Error Cubed', units='rad³')
-        self.setTitle('Telemetry - Error Cubed & PID vs Distance')
+        # Find and highlight regions where error > 20 until 5 consecutive zeros
+        regions = self._find_highlight_regions(error)
+        for start, end in regions:
+            region = pg.LinearRegionItem(values=[start, end], orientation='vertical',
+                                        brush=pg.mkBrush(255, 0, 0, 30))
+            self.addItem(region)
+            self.highlight_regions.append(region)
         
         self.error_curve = self.plot(
             self.distance_data,
-            self.error_data,
+            error,
             pen=pg.mkPen(color=(255, 0, 0), width=2),
             symbol='o',
             symbolSize=4,
             symbolBrush=(255, 0, 0),
             name='Line Error'
         )
-        
-        # Create right axis for PID output
-        right_axis = pg.ViewBox()
-        self.showAxis('right')
-        self.scene().addItem(right_axis)
-        self.getAxis('right').linkToView(right_axis)
-        right_axis.setLabel('PID Output', units='V')
-        
-        # Plot PID on right axis
-        pid_curve_item = pg.PlotCurveItem(
-            self.distance_data,
-            self.pid_data,
-            pen=pg.mkPen(color=(0, 255, 0), width=2),
-            symbol='s',
-            symbolSize=4,
-            symbolBrush=(0, 255, 0)
-        )
-        right_axis.addItem(pid_curve_item)
-        self.pid_curve = pid_curve_item
     
-    def set_plot_mode(self, mode: str) -> None:
+    def _find_highlight_regions(self, error: np.ndarray) -> list:
         """
-        Set the telemetry plot mode.
+        Find regions where error > 20 and extend until 5 consecutive zeros or sign change.
         
         Args:
-            mode: One of 'error', 'pid', or 'both'
+            error: Array of error values
+            
+        Returns:
+            List of (start_distance, end_distance) tuples for regions to highlight
         """
-        if mode not in ('error', 'pid', 'both'):
-            raise ValueError(f"Unknown mode: {mode}. Must be 'error', 'pid', or 'both'")
+        regions = []
+        in_region = False
+        region_start = None
+        region_sign = None
+        consecutive_zeros = 0
         
-        self.plot_mode = mode
-        self._update_plot()
+        for i, err in enumerate(error):
+            if abs(err) > 20:
+                if not in_region:
+                    region_start = self.distance_data[i]
+                    region_sign = np.sign(err)
+                    in_region = True
+                else:
+                    # Check for sign change while still > 20
+                    if np.sign(err) != region_sign:
+                        # Sign change detected - end the region
+                        region_end = self.distance_data[i]
+                        regions.append((region_start, region_end))
+                        # Start a new region with the new sign
+                        region_start = self.distance_data[i]
+                        region_sign = np.sign(err)
+                consecutive_zeros = 0
+            elif in_region:
+                if abs(err) == 0:  # Zero value
+                    consecutive_zeros += 1
+                    if consecutive_zeros == 5:
+                        # 5 consecutive zeros - end the region
+                        region_end = self.distance_data[i]
+                        regions.append((region_start, region_end))
+                        in_region = False
+                        consecutive_zeros = 0
+                        region_sign = None
+                else:  # Non-zero value below threshold
+                    # Check if this is a sign change
+                    if np.sign(err) != region_sign:
+                        # Sign change detected - end the region
+                        region_end = self.distance_data[i]
+                        regions.append((region_start, region_end))
+                        in_region = False
+                        consecutive_zeros = 0
+                        region_sign = None
+                    else:
+                        consecutive_zeros = 0
+        
+        # Handle case where region extends to end of data
+        if in_region:
+            regions.append((region_start, self.distance_data[-1]))
+        
+        return regions
+    
+
     
     def clear_data(self) -> None:
         """Clear all telemetry data and reset the plot."""
@@ -195,6 +199,7 @@ class TelemetryWidget(pg.PlotItem):
         self.pid_data = []
         self.velocity_data = []
         self.steering_data = []
+        self.highlight_regions = []
         self.clear()
     
     def get_telemetry_data(self) -> dict:
@@ -211,3 +216,117 @@ class TelemetryWidget(pg.PlotItem):
             'velocity': np.array(self.velocity_data),
             'steering': np.array(self.steering_data),
         }
+    
+    def track_mouse_position(self) -> float:
+        """
+        Get the current mouse position and manage a blue vertical line at that x coordinate.
+        
+        Returns:
+            float: The x value (distance in meters) of the mouse position over the graph,
+                   clamped to the data domain, or None if the mouse is not hovering
+        """
+        view_box = self.getViewBox()
+        if view_box is None:
+            return None
+        
+        scene = self.scene()
+        if scene is None:
+            return None
+        
+        views = scene.views()
+        if not views:
+            return None
+        
+        view = views[0]
+        
+        # Get global mouse position and convert to view coordinates
+        global_mouse_pos = QCursor.pos()
+        local_mouse_pos = view.mapFromGlobal(global_mouse_pos)
+        
+        # Convert to scene coordinates
+        scene_pos = view.mapToScene(local_mouse_pos)
+        
+        # Convert to data coordinates
+        data_pos = view_box.mapSceneToView(scene_pos)
+        
+        # Get the plot's scene bounding rectangle
+        plot_rect = view_box.sceneBoundingRect()
+        
+        # Check if mouse is within the plot bounds
+        if plot_rect.contains(scene_pos):
+            # Mouse is hovering over the graph
+            x_value = data_pos.x()
+            
+            # Clamp to curve domain if we have distance values
+            if len(self.distance_data) > 0:
+                min_distance = float(np.min(self.distance_data))
+                max_distance = float(np.max(self.distance_data))
+                x_value = np.clip(x_value, min_distance, max_distance)
+            
+            self.last_mouse_x = x_value
+            self.mouse_is_hovering = True
+            
+            # Create or update the line
+            if self.mouse_line is None:
+                self.mouse_line = pg.InfiniteLine(
+                    pos=x_value,
+                    angle=90,
+                    pen=pg.mkPen(color=(0, 0, 255), width=2),
+                )
+                self.addItem(self.mouse_line)
+            else:
+                self.mouse_line.setValue(x_value)
+            
+            return x_value
+        else:
+            # Mouse is not hovering over the graph
+            self.mouse_is_hovering = False
+            
+            if self.mouse_line is not None:
+                self.removeItem(self.mouse_line)
+                self.mouse_line = None
+            
+            self.last_mouse_x = None
+            return None
+    
+    def set_highlight_line(self, distance: float = None) -> None:
+        """
+        Set the position of the highlight line externally.
+        
+        Args:
+            distance: The distance value for the highlight line, or None to hide it
+        """
+        if distance is None:
+            # Hide the line
+            if self.mouse_line is not None:
+                self.removeItem(self.mouse_line)
+                self.mouse_line = None
+            self.last_mouse_x = None
+        else:
+            # Clamp to data domain if available
+            clamped_distance = distance
+            if len(self.distance_data) > 0:
+                min_distance = float(np.min(self.distance_data))
+                max_distance = float(np.max(self.distance_data))
+                clamped_distance = np.clip(distance, min_distance, max_distance)
+            
+            self.last_mouse_x = clamped_distance
+            
+            # Create or update the line
+            if self.mouse_line is None:
+                self.mouse_line = pg.InfiniteLine(
+                    pos=clamped_distance,
+                    angle=90,
+                    pen=pg.mkPen(color=(0, 0, 255), width=2),
+                )
+                self.addItem(self.mouse_line)
+            else:
+                self.mouse_line.setValue(clamped_distance)
+    
+    def mouseMoveEvent(self, event):
+        """Handle mouse movement over the plot."""
+        super().mouseMoveEvent(event)
+    
+    def leaveEvent(self, event):
+        """Handle mouse leaving the plot area."""
+        super().leaveEvent(event)

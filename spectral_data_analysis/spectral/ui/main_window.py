@@ -224,10 +224,39 @@ class MainWindow():
         self.profile_analysis.update_robot_position(most_recent.distance)
         
         packets_list = self.packet_database.get_all_packets()
-        self.ir_sensor.update(np.array([p.ir_raw for p in packets_list]))
+        self.ir_sensor.update(
+            np.array([p.ir_raw for p in packets_list]),
+            np.array([p.distance for p in packets_list])
+        )
         
         # Update telemetry widget with all packets
         self.telemetry.update_with_packets(self.packet_database.get_packets_dict())
+    
+    def update(self):
+        """
+        Update method called at 60 TPS for UI updates.
+        This is for continuous UI refresh tasks.
+        """
+        # Track mouse position on all widgets
+        profile_mouse_dist = self.profile_analysis.track_mouse_position()
+        ir_sensor_mouse_dist = self.ir_sensor.track_mouse_position()
+        telemetry_mouse_dist = self.telemetry.track_mouse_position()
+        
+        # Profile analysis syncs with track map
+        if profile_mouse_dist is not None:
+            self.track_map.update_highlight_point(profile_mouse_dist)
+
+        
+        # IR sensor and telemetry sync with each other
+        if ir_sensor_mouse_dist is not None:
+            self.ir_sensor.set_highlight_line(ir_sensor_mouse_dist)
+            self.telemetry.set_highlight_line(ir_sensor_mouse_dist)
+        elif telemetry_mouse_dist is not None:
+            self.ir_sensor.set_highlight_line(telemetry_mouse_dist)
+            self.telemetry.set_highlight_line(telemetry_mouse_dist)
+        else:
+            self.ir_sensor.set_highlight_line(None)
+            self.telemetry.set_highlight_line(None)
     
     def load_file(self):
         """Open a file picker and load a packet file."""
@@ -265,12 +294,16 @@ class MainWindow():
                 self.profile_analysis.update_robot_position(most_recent.distance)
                 
                 # Update IR sensor with all packets
-                self.ir_sensor.update(np.array([p.ir_raw for p in packets_list]))
+                self.ir_sensor.update(
+                    np.array([p.ir_raw for p in packets_list]),
+                    np.array([p.distance for p in packets_list])
+                )
                 
                 # Update telemetry widget
                 self.telemetry.update_with_packets(self.packet_database.get_packets_dict())
         except Exception as e:
             # Show error dialog
+            print(f"Error loading file: {e}")
             error_dialog = QtWidgets.QMessageBox(self.win)
             error_dialog.setWindowTitle("Error Loading File")
             error_dialog.setText(f"Failed to load file: {e}")

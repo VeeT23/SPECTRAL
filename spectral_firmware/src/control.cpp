@@ -161,7 +161,7 @@ void controlTask(void *arg)
         }
 
         process_ir_data();
-        int8_t error = get_error(0.5f); // returns INT8_MAX if no line detected
+        int8_t error = get_error(); // returns INT8_MAX if no line detected
 
         // ---------- UPDATE CONTROL STATE ----------
         updateOdometry(

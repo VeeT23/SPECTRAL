@@ -15,9 +15,15 @@ class Main(QtCore.QObject):
 
         self.serial = ESP32Serial(packet_size=SIZE)
 
+        # Packet reading timer (200 TPS)
         timer = QtCore.QTimer(self)
         timer.timeout.connect(self.update)
         timer.start(5) # Update every 5 ms
+
+        # UI update timer (60 TPS)
+        self.ui_timer = QtCore.QTimer(self)
+        self.ui_timer.timeout.connect(self.window.update)
+        self.ui_timer.start(int(1000 / 60))  # ~16.67 ms for 60 TPS
 
     def update(self):
         # Consume all available packets from the queue (prevents buildup/overlap)

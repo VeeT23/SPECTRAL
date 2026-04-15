@@ -31,16 +31,32 @@ class TelemetryPacketDatabase:
         """Convert packet to JSON-serializable dict."""
         return {
             'ticks_since_idle': packet.ticks_since_idle,
-            'distance': packet.distance,
+            'velocity': packet.velocity,
+            'steering': packet.steering,
             'ir_raw': packet.ir_raw.tolist() if hasattr(packet.ir_raw, 'tolist') else packet.ir_raw,
+            'ir_processed': packet.ir_processed.tolist() if hasattr(packet.ir_processed, 'tolist') else packet.ir_processed,
+            'line_error': packet.line_error,
+            'pid_output': packet.pid_output,
+            'distance': packet.distance,
+            'approx_x': packet.approx_x,
+            'approx_y': packet.approx_y,
         }
     
     def _json_to_packet(self, json_dict):
-        """Convert JSON dict back to packet (simplified)."""
-        packet = TelemetryPacket()
-        packet.ticks_since_idle = json_dict['ticks_since_idle']
-        packet.distance = json_dict['distance']
-        packet.ir_raw = json_dict['ir_raw']
+        """Convert JSON dict back to packet."""
+        import numpy as np
+        packet = TelemetryPacket(
+            ticks_since_idle=json_dict['ticks_since_idle'],
+            velocity=json_dict['velocity'],
+            steering=json_dict['steering'],
+            ir_raw=np.array(json_dict['ir_raw'], dtype=np.uint16),
+            ir_processed=np.array(json_dict['ir_processed'], dtype=np.uint8),
+            line_error=json_dict['line_error'],
+            pid_output=json_dict['pid_output'],
+            distance=json_dict['distance'],
+            approx_x=json_dict['approx_x'],
+            approx_y=json_dict['approx_y'],
+        )
         return packet
     
     def _find_insertion_point(self, packet_ticks):
