@@ -96,14 +96,12 @@ void controlTask(void *arg)
     motor_left.zeroPosition();
     motor_right.zeroPosition();
 
-    int8_t prev_error = 0;
-    int8_t valid_error = 0;
+    // Create sensor array with module configuration from config.h
+    SensorArray sensor_array(NUM_MODULES, SENSORS_PER_MODULE);
 
     float distance = 0.0f;
 
     OdometryState odom;
-
-    bool line_lost = false;
 
     RadioInstance().reset_timeout(); // Reset radio timeout at startup
 
@@ -157,11 +155,11 @@ void controlTask(void *arg)
 
         for (int i = 0; i < SENSORS_PER_MODULE; i++)
         {
-            poll_sensors();
+            sensor_array.poll();
         }
 
-        process_ir_data();
-        int8_t error = get_error(); // returns INT8_MAX if no line detected
+        sensor_array.process();
+        int8_t error = sensor_array.getError(); // returns INT8_MAX if no line detected (also updates valid_error internally)
 
         // ---------- UPDATE CONTROL STATE ----------
         updateOdometry(
@@ -169,24 +167,18 @@ void controlTask(void *arg)
             motor_left.telemetry().revolutions,
             motor_right.telemetry().revolutions);
 
-        if (error == INT8_MAX && !line_lost) // Line just lost
+        // Check if line was just lost
+        if (sensor_array.isLineLost() && error == INT8_MAX)
         {
-            line_lost = true;
             Serial.println("Line lost!");
+        }
 
-            valid_error = (prev_error < 0) ? -TOTAL_SENSORS : TOTAL_SENSORS; // If no line detected, keep previous error but amplified
-        }
-        else if (error != INT8_MAX) // Line found again
-        {
-            line_lost = false;
-            valid_error = error;
-            prev_error = error;
-        }
         float pid_output = 0.0F;
         if (current_mode == 2)
         {
             activeDuration = ticks - lastIdle;
-            pid_output = pid_update(valid_error / static_cast<float>(TOTAL_SENSORS / 2), CONTROL_PERIOD * portTICK_PERIOD_MS / 1000.0f); // Normalize error to [-1, 1] range
+            int8_t valid_error = sensor_array.getValidError();
+            pid_output = pid_update(valid_error / static_cast<float>(sensor_array.getTotalSensors() / 2), CONTROL_PERIOD * portTICK_PERIOD_MS / 1000.0f); // Normalize error to [-1, 1] range
         }
         // ---------- UPDATE MOTORS ----------
 
@@ -244,11 +236,15 @@ void controlTask(void *arg)
             else
             {
                 Screen::instance().gfx().setTextSize(1);
-                for (uint8_t i = 0; i < TOTAL_SENSORS; i++)
+                const bool *ir_data = sensor_array.getProcessedData();
+                for (uint8_t i = 0; i < sensor_array.getTotalSensors(); i++)
                 {
-                    Screen::instance().gfx().drawRect((TOTAL_SENSORS - i) * 3, 0, 2, ir_processed[i] ? 8 : 0, SSD1306_WHITE);
+                    Screen::instance().gfx().drawRect((sensor_array.getTotalSensors() - i) * 3, 0, 2, ir_data[i] ? 8 : 0, SSD1306_WHITE);
                 }
-                Screen::instance().gfx().drawCircle((64 - (128 / TOTAL_SENSORS * error)), 12, 3, SSD1306_WHITE);
+                if (error != INT8_MAX)
+                {
+                    Screen::instance().gfx().drawCircle((64 - (128 / sensor_array.getTotalSensors() * error)), 12, 3, SSD1306_WHITE);
+                }
 
                 switch (current_mode)
                 {
@@ -294,14 +290,16 @@ void controlTask(void *arg)
             tx.steering = odom.theta * (180.0f / PI); // Convert radians → degrees
 
             // Copy raw IR
-            memcpy(tx.ir_raw, ir_raw, sizeof(tx.ir_raw));
+            const uint16_t *ir_raw_data = sensor_array.getRawData();
+            memcpy(tx.ir_raw, ir_raw_data, sensor_array.getTotalSensors() * sizeof(uint16_t));
 
             // Pack 40 bools into 64-bit bitfield
             uint64_t packed = 0;
+            const bool *ir_proc_data = sensor_array.getProcessedData();
 
             for (uint8_t i = 0; i < 40; i++)
             {
-                if (ir_processed[i])
+                if (ir_proc_data[i])
                 {
                     packed |= (1ULL << i);
                 }
@@ -309,7 +307,7 @@ void controlTask(void *arg)
 
             tx.packed_ir_processed = packed;
 
-            tx.line_error = valid_error;
+            tx.line_error = sensor_array.getValidError();
             tx.pid_output = pid_output;
 
             tx.distance = odom.distance; // Approximate distance traveled (relative to start)
