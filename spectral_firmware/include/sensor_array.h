@@ -311,6 +311,21 @@ private:
 
 public:
 
+    /// @brief Reset internal tracking state for a clean mode transition
+    /// @param start_line_lost If true, startup no-line frames do not trigger corner-wait logic
+    void resetTrackingState(bool start_line_lost = true)
+    {
+        sensor_idx = 0;
+        prev_error = 0;
+        valid_error = 0;
+        line_lost = start_line_lost;
+        waiting_for_corner = false;
+        expecting_left_corner = false;
+
+        memset(ir_raw, 0, total_sensors * sizeof(uint16_t));
+        memset(ir_processed, 0, total_sensors * sizeof(bool));
+    }
+
     /// @brief Get the current valid error for PID control
     /// @return int8_t The valid error value (possibly amplified if line is lost)
     int8_t getValidError() const
@@ -378,7 +393,7 @@ public:
 ///
 /// Implements classic PID control with configurable gains (KP, KI, KD from config.h)
 /// to convert line position error into motor control signals.
-float pid_update(float error, float dt)
+float pid_update(float error, float dt, float velocity_percent)
 {
     static float integral = 0.0f;
     static float prev_error = 0.0f;

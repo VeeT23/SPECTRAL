@@ -12,13 +12,46 @@ class MenuBar(QtWidgets.QMenuBar):
         # Create File menu
         self.file_menu = self.addMenu('File')
         
-        # Add Load action to File menu
-        self.load_action = QAction('Load', self)
-        self.load_action.triggered.connect(lambda: self.main_window.load_file())
-        self.file_menu.addAction(self.load_action)
+        # Session actions
+        self.load_session_action = QAction('Load Session', self)
+        self.load_session_action.triggered.connect(lambda: self.main_window.load_file())
+        self.file_menu.addAction(self.load_session_action)
+
+        # Solution actions
+        self.save_solution_action = QAction('Save Solution', self)
+        self.save_solution_action.triggered.connect(lambda: self.main_window.save_solution_file())
+        self.file_menu.addAction(self.save_solution_action)
+
+        self.load_solution_action = QAction('Load Solution', self)
+        self.load_solution_action.triggered.connect(lambda: self.main_window.load_solution_file())
+        self.file_menu.addAction(self.load_solution_action)
+
+        self.export_solution_action = QAction('Export Solution', self)
+        self.export_solution_action.triggered.connect(lambda: self.main_window.export_solution_file())
+        self.file_menu.addAction(self.export_solution_action)
         
         # Create Edit menu
         self.edit_menu = self.addMenu('Edit')
+
+        self.edit_mode_group = QActionGroup(self)
+        self.edit_mode_group.setExclusive(True)
+
+        self.edit_points_action = QAction('Edit Points', self)
+        self.edit_points_action.setCheckable(True)
+        self.edit_points_action.setChecked(True)
+        self.edit_points_action.triggered.connect(
+            lambda checked: checked and self.main_window.set_edit_mode('points')
+        )
+        self.edit_mode_group.addAction(self.edit_points_action)
+        self.edit_menu.addAction(self.edit_points_action)
+
+        self.edit_spans_action = QAction('Edit Spans', self)
+        self.edit_spans_action.setCheckable(True)
+        self.edit_spans_action.triggered.connect(
+            lambda checked: checked and self.main_window.set_edit_mode('spans')
+        )
+        self.edit_mode_group.addAction(self.edit_spans_action)
+        self.edit_menu.addAction(self.edit_spans_action)
         
         # Create View menu
         self.view_menu = self.addMenu('View')

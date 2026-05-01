@@ -32,14 +32,12 @@ class TelemetryPacketDatabase:
         return {
             'ticks_since_idle': packet.ticks_since_idle,
             'velocity': packet.velocity,
-            'steering': packet.steering,
+            'relative_heading': packet.relative_heading,
             'ir_raw': packet.ir_raw.tolist() if hasattr(packet.ir_raw, 'tolist') else packet.ir_raw,
             'ir_processed': packet.ir_processed.tolist() if hasattr(packet.ir_processed, 'tolist') else packet.ir_processed,
             'line_error': packet.line_error,
             'pid_output': packet.pid_output,
             'distance': packet.distance,
-            'approx_x': packet.approx_x,
-            'approx_y': packet.approx_y,
         }
     
     def _json_to_packet(self, json_dict):
@@ -48,14 +46,12 @@ class TelemetryPacketDatabase:
         packet = TelemetryPacket(
             ticks_since_idle=json_dict['ticks_since_idle'],
             velocity=json_dict['velocity'],
-            steering=json_dict['steering'],
+            relative_heading=json_dict['relative_heading'],
             ir_raw=np.array(json_dict['ir_raw'], dtype=np.uint16),
             ir_processed=np.array(json_dict['ir_processed'], dtype=np.uint8),
             line_error=json_dict['line_error'],
             pid_output=json_dict['pid_output'],
             distance=json_dict['distance'],
-            approx_x=json_dict['approx_x'],
-            approx_y=json_dict['approx_y'],
         )
         return packet
     
@@ -142,6 +138,30 @@ class TelemetryPacketDatabase:
         if len(ticks) == 0:
             return None
         return self.packets[ticks[-1]]
+    
+    def get_packet_at_closest_distance(self, target_distance):
+        """
+        Find and return the packet with distance closest to the target distance.
+        
+        Args:
+            target_distance: The target distance value to search for
+            
+        Returns:
+            The packet with the closest distance, or None if no packets exist
+        """
+        if not self.packets:
+            return None
+        
+        closest_packet = None
+        min_distance_diff = float('inf')
+        
+        for packet in self.packets.values():
+            distance_diff = abs(packet.distance - target_distance)
+            if distance_diff < min_distance_diff:
+                min_distance_diff = distance_diff
+                closest_packet = packet
+        
+        return closest_packet
     
     def clear(self):
         """Clear all packets."""

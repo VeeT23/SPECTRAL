@@ -9,6 +9,8 @@ from spectral.ui.gui.profile_analysis import ProfileAnalysisWidget
 from spectral.ui.gui.telemetry import TelemetryWidget
 from spectral.data.image_processor import process_image
 from spectral.data.packet_database import TelemetryPacketDatabase
+from spectral.data.solution import Solution
+from spectral.geometry.polyline import Polyline
 
 class MainWindow():
     # Default grid layout configuration for widgets
@@ -22,6 +24,10 @@ class MainWindow():
     def __init__(self, config=None, layout=None):
 
         self.packet_database = TelemetryPacketDatabase()
+        self.solution_sweep_width = config.data.get('robot_sensor_sweep_width_meters', 0.1) if config is not None else 0.1
+        self.solution_threshold_degrees = config.data.get('solution_threshold_degrees', 45.0) if config is not None else 45.0
+        self.solution_range_degrees = config.data.get('solution_range_degrees', 20.0) if config is not None else 45.0
+        self.current_solution = None
 
         self.win = QtWidgets.QMainWindow()
         self.win.setWindowTitle("Spectral Data Analysis")
@@ -41,6 +47,7 @@ class MainWindow():
         # Create and add TrackMapWidget
         self.track_map = TrackMapWidget()
         self.track_map.actual_size_meters = config.data.get('course_size_meters') if config is not None else None
+        self.track_map.set_edit_mode('points')
         self._add_widget_to_grid(self.track_map, grid_layout['track_map'])
 
         # Create and Add IRSensorWidget
@@ -55,7 +62,8 @@ class MainWindow():
         # Create and Add TelemetryWidget
         self.telemetry = TelemetryWidget()
         self._add_widget_to_grid(self.telemetry, grid_layout['telemetry'])
-        
+        self.telemetry.set_mode('relative_heading')  # Default to relative_heading mode
+
         # Load and process image if config is provided
         if config is not None:
             self._load_image_from_config(config)
@@ -162,6 +170,9 @@ class MainWindow():
 
                 self.track_map.create_boundary_lines(width=config.data.get('robot_sensor_sweep_width_meters', 0.1))
                 self.menu_bar.create_stages_menu(["None"] + stage_names)
+
+                # Generate and visualize a solution from the startup path.
+                self._generate_solution_from_track_path()
                 
         except Exception as e:
             import traceback
@@ -177,6 +188,15 @@ class MainWindow():
         print(f"Setting path color mode to: {mode}")
         if self.track_map.path_line is not None:
             self.track_map.path_line.set_color_mode(mode)
+
+    def set_edit_mode(self, mode: str):
+        """Set the active editing mode for the track map."""
+        if mode not in ('points', 'spans'):
+            print(f"Ignoring unknown edit mode: {mode}")
+            return
+
+        self.track_map.set_edit_mode(mode)
+        print(f"Setting edit mode to: {mode}")
     
     def set_path_visibility(self, visible):
         """Show or hide the path visualization."""
@@ -209,6 +229,21 @@ class MainWindow():
             polyline = self.track_map.path_line.polyline
             self.profile_analysis.set_polyline(polyline)
 
+    def _generate_solution_from_track_path(self):
+        """Generate and visualize a solution from the current track map path line."""
+        if self.track_map.path_line is None:
+            return None
+
+        polyline = self.track_map.path_line.polyline
+        self.current_solution = Solution.from_polyline(
+            polyline=polyline,
+            threshold=self.solution_threshold_degrees,
+            range=self.solution_range_degrees,
+        )
+        self.track_map.visualize_solution(self.current_solution)
+        print(f"Generated startup solution with {len(self.current_solution.s_points)} SPoints")
+        return self.current_solution
+
     def on_packet(self, packet : TelemetryPacket):
 
         is_new_run = self.packet_database.add_packet(packet)
@@ -220,7 +255,7 @@ class MainWindow():
         if most_recent is None:
             return
         
-        self.track_map.update_robot_position(most_recent.distance)
+        self.track_map.update_robot_position(most_recent.distance, heading_degrees=most_recent.relative_heading)
         self.profile_analysis.update_robot_position(most_recent.distance)
         
         packets_list = self.packet_database.get_all_packets()
@@ -249,11 +284,25 @@ class MainWindow():
         
         # IR sensor and telemetry sync with each other
         if ir_sensor_mouse_dist is not None:
-            self.ir_sensor.set_highlight_line(ir_sensor_mouse_dist)
-            self.telemetry.set_highlight_line(ir_sensor_mouse_dist)
+            packet = self.packet_database.get_packet_at_closest_distance(ir_sensor_mouse_dist)
+            if packet is not None:
+                heading_degrees = packet.relative_heading
+                self.ir_sensor.set_highlight_line(ir_sensor_mouse_dist)
+                self.telemetry.set_highlight_line(ir_sensor_mouse_dist)
+                self.track_map.update_robot_position(ir_sensor_mouse_dist, heading_degrees=heading_degrees)
+            else:
+                self.ir_sensor.set_highlight_line(None)
+                self.telemetry.set_highlight_line(None)
         elif telemetry_mouse_dist is not None:
-            self.ir_sensor.set_highlight_line(telemetry_mouse_dist)
-            self.telemetry.set_highlight_line(telemetry_mouse_dist)
+            packet = self.packet_database.get_packet_at_closest_distance(telemetry_mouse_dist)
+            if packet is not None:
+                heading_degrees = packet.relative_heading
+                self.ir_sensor.set_highlight_line(telemetry_mouse_dist)
+                self.telemetry.set_highlight_line(telemetry_mouse_dist)
+                self.track_map.update_robot_position(telemetry_mouse_dist, heading_degrees=heading_degrees)
+            else:
+                self.ir_sensor.set_highlight_line(None)
+                self.telemetry.set_highlight_line(None)
         else:
             self.ir_sensor.set_highlight_line(None)
             self.telemetry.set_highlight_line(None)
@@ -307,5 +356,117 @@ class MainWindow():
             error_dialog = QtWidgets.QMessageBox(self.win)
             error_dialog.setWindowTitle("Error Loading File")
             error_dialog.setText(f"Failed to load file: {e}")
+            error_dialog.setIcon(QtWidgets.QMessageBox.Icon.Warning)
+            error_dialog.exec()
+
+    def save_solution_file(self):
+        """Save the current solution to a .json file."""
+        from pathlib import Path
+
+        if self.current_solution is None:
+            self._generate_solution_from_track_path()
+
+        if self.current_solution is None:
+            info_dialog = QtWidgets.QMessageBox(self.win)
+            info_dialog.setWindowTitle("No Path")
+            info_dialog.setText("No path available to generate a solution.")
+            info_dialog.setIcon(QtWidgets.QMessageBox.Icon.Information)
+            info_dialog.exec()
+            return
+
+        solutions_folder = Solution.SOLUTIONS_DIR
+        solutions_folder.mkdir(exist_ok=True)
+
+        filepath, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self.win,
+            "Save Solution File",
+            str(solutions_folder / "solution.json"),
+            "JSON Files (*.json)"
+        )
+
+        if not filepath:
+            return
+
+        try:
+            saved_path = self.current_solution.save(filepath)
+            print(f"Saved solution to: {saved_path}")
+        except Exception as e:
+            print(f"Error saving solution file: {e}")
+            error_dialog = QtWidgets.QMessageBox(self.win)
+            error_dialog.setWindowTitle("Error Saving Solution")
+            error_dialog.setText(f"Failed to save solution: {e}")
+            error_dialog.setIcon(QtWidgets.QMessageBox.Icon.Warning)
+            error_dialog.exec()
+
+    def load_solution_file(self):
+        """Load a .json solution file and visualize it on the track map."""
+        from pathlib import Path
+
+        solutions_folder = Solution.SOLUTIONS_DIR
+        file_dialog = QtWidgets.QFileDialog(self.win)
+        file_dialog.setDirectory(str(solutions_folder))
+        file_dialog.setNameFilter("JSON Files (*.json)")
+
+        filepath, _ = file_dialog.getOpenFileName(
+            self.win,
+            "Load Solution File",
+            str(solutions_folder),
+            "JSON Files (*.json)"
+        )
+
+        if not filepath:
+            return
+
+        try:
+            solution = Solution.load(filepath)
+            self.current_solution = solution
+
+            self.track_map.visualize_solution(solution)
+            print(f"Loaded solution from: {filepath}")
+        except Exception as e:
+            print(f"Error loading solution file: {e}")
+            error_dialog = QtWidgets.QMessageBox(self.win)
+            error_dialog.setWindowTitle("Error Loading Solution")
+            error_dialog.setText(f"Failed to load solution: {e}")
+            error_dialog.setIcon(QtWidgets.QMessageBox.Icon.Warning)
+            error_dialog.exec()
+
+    def export_solution_file(self):
+        """Export current solution as C++ uint8_t array text file."""
+        from pathlib import Path
+
+        if self.current_solution is None:
+            self._generate_solution_from_track_path()
+
+        if self.current_solution is None:
+            info_dialog = QtWidgets.QMessageBox(self.win)
+            info_dialog.setWindowTitle("No Path")
+            info_dialog.setText("No path available to generate a solution.")
+            info_dialog.setIcon(QtWidgets.QMessageBox.Icon.Information)
+            info_dialog.exec()
+            return
+
+        solutions_folder = Solution.SOLUTIONS_DIR
+        solutions_folder.mkdir(exist_ok=True)
+
+        filepath, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self.win,
+            "Export Solution As C++ Bytes",
+            str(solutions_folder / "solution_bytes.txt"),
+            "Text Files (*.txt)"
+        )
+
+        if not filepath:
+            return
+
+        try:
+            cpp_bytes = self.current_solution.to_cpp_byte_array(array_name="kSolutionData")
+            Path(filepath).write_text(cpp_bytes, encoding="utf-8")
+            print(f"Exported C++ solution bytes to: {filepath}")
+        except Exception as e:
+            print(f"Error exporting solution file: {e}")
+            error_dialog = QtWidgets.QMessageBox(self.win)
+            error_dialog.setWindowTitle("Error Exporting Solution")
+            error_dialog.setText(f"Failed to export solution: {e}")
             error_dialog.setIcon(QtWidgets.QMessageBox.Icon.Warning)
             error_dialog.exec()

@@ -9,7 +9,7 @@ class TelemetryWidget(pg.PlotItem):
     """
     A widget for visualizing telemetry data from packets across distance.
     
-    Displays metrics such as line error, PID output, velocity, and steering angle
+    Displays metrics such as line error, PID output, velocity, and relative heading
     plotted against distance traveled along the track.
     """
     
@@ -27,7 +27,7 @@ class TelemetryWidget(pg.PlotItem):
         self.error_data = []
         self.pid_data = []
         self.velocity_data = []
-        self.steering_data = []
+        self.relative_heading_data = []
         
         # Plot curves
         self.error_curve = None
@@ -37,6 +37,9 @@ class TelemetryWidget(pg.PlotItem):
         self.mouse_line = None
         self.last_mouse_x = None
         self.mouse_is_hovering = False
+        
+        # Display mode
+        self.current_mode = 'error'  # Options: 'error', 'relative_heading'
         
         # Configure plot
         self.setLabel('bottom', 'Distance', units='m')
@@ -65,7 +68,7 @@ class TelemetryWidget(pg.PlotItem):
         error_values = []
         pid_values = []
         velocity_values = []
-        steering_values = []
+        relative_heading_values = []
         
         for tick in sorted_ticks:
             packet = packets_dict[tick]
@@ -73,26 +76,57 @@ class TelemetryWidget(pg.PlotItem):
             error_values.append(packet.line_error)
             pid_values.append(packet.pid_output)
             velocity_values.append(packet.velocity)
-            steering_values.append(packet.steering)
+            relative_heading_values.append(packet.relative_heading)
         
         self.distance_data = np.array(distance_values)
         self.error_data = np.array(error_values)
         self.pid_data = np.array(pid_values)
         self.velocity_data = np.array(velocity_values)
-        self.steering_data = np.array(steering_values)
+        self.relative_heading_data = np.array(relative_heading_values)
         
         # Update the plot
         self._update_plot()
     
     def _update_plot(self) -> None:
-        """Update the plot to display line error vs distance."""
+        """Update the plot based on the current display mode."""
         # Clear previous plot items
         self.clear()
         
         if len(self.distance_data) == 0:
             return
         
-        self._plot_error()
+        if self.current_mode == 'error':
+            self._plot_error()
+        elif self.current_mode == 'relative_heading':
+            self._plot_relative_heading()
+    
+    def set_mode(self, mode: str) -> None:
+        """
+        Set the display mode for the telemetry plot.
+        
+        Args:
+            mode: Display mode ('error' or 'relative_heading')
+        """
+        if mode not in ['error', 'relative_heading']:
+            raise ValueError(f"Invalid mode: {mode}. Must be 'error' or 'relative_heading'")
+        
+        self.current_mode = mode
+        self._update_plot()
+    
+    def _plot_relative_heading(self) -> None:
+        """Plot relative heading angle vs distance."""
+        self.setLabel('left', 'Relative Heading', units='deg')
+        self.setTitle('Telemetry - Relative Heading vs Distance')
+        
+        self.error_curve = self.plot(
+            self.distance_data,
+            self.relative_heading_data,
+            pen=pg.mkPen(color=(0, 255, 0), width=2),
+            symbol='o',
+            symbolSize=4,
+            symbolBrush=(0, 255, 0),
+            name='Relative Heading'
+        )
     
     def _plot_error(self) -> None:
         """Plot line error vs distance."""
@@ -198,7 +232,7 @@ class TelemetryWidget(pg.PlotItem):
         self.error_data = []
         self.pid_data = []
         self.velocity_data = []
-        self.steering_data = []
+        self.relative_heading_data = []
         self.highlight_regions = []
         self.clear()
     
@@ -207,14 +241,14 @@ class TelemetryWidget(pg.PlotItem):
         Get current telemetry data.
         
         Returns:
-            Dictionary with keys 'distance', 'error', 'pid', 'velocity', 'steering'
+            Dictionary with keys 'distance', 'error', 'pid', 'velocity', 'relative_heading'
         """
         return {
             'distance': np.array(self.distance_data),
             'error': np.array(self.error_data),
             'pid': np.array(self.pid_data),
             'velocity': np.array(self.velocity_data),
-            'steering': np.array(self.steering_data),
+            'relative_heading': np.array(self.relative_heading_data),
         }
     
     def track_mouse_position(self) -> float:

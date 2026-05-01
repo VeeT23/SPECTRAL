@@ -9,6 +9,7 @@
 // Main loop
 #include "control.h"
 
+#include "splash.h"
 
 /**
  * Main boot sequence
@@ -31,10 +32,15 @@ void setup()
     // ---------- I2C INIT ----------
     Serial.println("Initializing I2C...");
     Wire.begin(PINS::SDA, PINS::SCL);
+    Wire.setClock(400000);
+    Wire.setTimeOut(5);
 
     // ---------- SCREEN INIT ----------
     Serial.println("Initializing OLED...");
     Screen::instance().init(0x3C);
+    Screen::instance().gfx().clearDisplay();
+    Screen::instance().gfx().drawBitmap(0, 0, SPLASH, 128, 64, SSD1306_WHITE);
+    Screen::instance().gfx().display();
 
     // ---------- RADIO INIT ----------
     Serial.println("Initializing Radio...");

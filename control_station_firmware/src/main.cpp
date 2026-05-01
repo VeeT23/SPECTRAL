@@ -82,14 +82,23 @@ void loop()
 
     if (joy_right.just_released())
     {
-        control_mode++;
-        if (control_mode > 2)
-            control_mode = 0;
+        if (in_config_menu)
+        {
+            // Exit config menu on right joystick button press
+            in_config_menu = false;
+        }
+        else
+        {
+            // Cycle control modes on right joystick button press
+            control_mode++;
+            if (control_mode > 2)
+                control_mode = 0;
+        }
     }
 
     if (in_config_menu)
     {
-        max_velocity += joy_right.y() * 0.005f; // Adjust max velocity with right joystick up/down
+        max_velocity += joy_right.y() * 0.005f;               // Adjust max velocity with right joystick up/down
         max_velocity = constrain(max_velocity, 0.05f, 10.0f); // Constrain to reasonable range
     }
 
@@ -97,7 +106,7 @@ void loop()
     {
         lastSend = millis();
 
-        float throttle = joy_left.y() * max_velocity; // Forward/backward on left joystick
+        float throttle = joy_left.y() * max_velocity;                    // Forward/backward on left joystick
         float steering = joy_right.x() * (1 - abs(joy_left.y()) * 0.5f); // Left/right on right joystick
 
         float throttle_left, throttle_right;
