@@ -25,8 +25,8 @@ namespace PINS {
 
     //Misc
     constexpr int BUZZER = 25;
-    constexpr int NEOPIXEL = 26;
-    constexpr int FAN_PWM = 27;
+    constexpr int NEOPIXEL = 26; // Exposed but never used
+    constexpr int FAN_PWM = 27; // Exposed but never used
 
     constexpr int OUTPUT_PINS[] =
     {
