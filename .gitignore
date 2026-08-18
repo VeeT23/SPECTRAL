@@ -1,2 +1,2 @@
-Logic_Module/.vscode/extensions.json
-/Arc/__pycache__
+*.pyc
+/spectral_data_analysis/session
